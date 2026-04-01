@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import * as LightweightCharts from "lightweight-charts"
 
 const { createChart } = LightweightCharts
-const API_BASE = "http://localhost:8000"
+const API_BASE = "https://stock-dashboard-production-19d7.up.railway.app"
 
 function CandleChart({ ticker }) {
   const chartRef = useRef(null)
