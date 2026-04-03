@@ -149,13 +149,13 @@ function SniperBox({ ticker, currency }) {
           background: data.is_bad_news ? "#1a0505" : "#05101a",
           border: `1px solid ${data.is_bad_news ? "#ff3b3b" : "#3b82f6"}`,
           borderRadius: 8, padding: "10px 14px", marginBottom: 10,
-          fontSize: 13, color: data.is_bad_news ? "#ff9999" : "#93c5fd",
-          fontStyle: "italic",
+          fontSize: 15, color: data.is_bad_news ? "#ff9999" : "#93c5fd",
+          fontStyle: "normal",
         }}
       >
         🎯 {data.scenario}
         {data.is_bad_news && data.discount_pct > 0 && (
-          <span style={{ color: "#ff3b3b", marginLeft: 8, fontStyle: "normal", fontWeight: "bold" }}>
+          <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>
             [{data.discount_pct}% 벙커 하향 적용됨]
           </span>
         )}
@@ -163,31 +163,31 @@ function SniperBox({ ticker, currency }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         <div style={{ background: "#0d2d0d", border: "1px solid #22c55e", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>🔍 1차 정찰대 (20%)</div>
-          <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 14 }}>{fmt(data.buy1)}</div>
-          <div style={{ color: "#666", fontSize: 10 }}>현재가 -3%~</div>
+          <div style={{ color: "#aaa", fontSize: 11 }}>🔍 1차 정찰대 (20%)</div>
+          <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 15 }}>{fmt(data.buy1)}</div>
+          <div style={{ color: "#666", fontSize: 11 }}>현재가 -3%~</div>
         </div>
         <div style={{ background: "#1a2d0d", border: "1px solid #84cc16", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>⚔️ 2차 본대 (30%)</div>
-          <div style={{ color: "#84cc16", fontWeight: "bold", fontSize: 14 }}>{fmt(data.buy2)}</div>
-          <div style={{ color: "#666", fontSize: 10 }}>현재가 -7%~</div>
+          <div style={{ color: "#aaa", fontSize: 11 }}>⚔️ 2차 본대 (30%)</div>
+          <div style={{ color: "#84cc16", fontWeight: "bold", fontSize: 15 }}>{fmt(data.buy2)}</div>
+          <div style={{ color: "#666", fontSize: 11 }}>현재가 -7%~</div>
         </div>
         <div style={{ background: "#2d1a0d", border: "1px solid #f97316", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>🏴 3차 지하벙커 (50%)</div>
-          <div style={{ color: "#f97316", fontWeight: "bold", fontSize: 14 }}>{fmt(data.buy3)}</div>
-          <div style={{ color: "#666", fontSize: 10 }}>현재가 -12%~</div>
+          <div style={{ color: "#aaa", fontSize: 11 }}>🏴 3차 지하벙커 (50%)</div>
+          <div style={{ color: "#f97316", fontWeight: "bold", fontSize: 15 }}>{fmt(data.buy3)}</div>
+          <div style={{ color: "#666", fontSize: 11 }}>현재가 -12%~</div>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
         <div style={{ background: "#0d0d2d", border: "1px solid #6366f1", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>🚀 매도 목표가</div>
-          <div style={{ color: "#6366f1", fontWeight: "bold", fontSize: 14 }}>{fmt(data.sell)}</div>
-          <div style={{ color: "#666", fontSize: 10 }}>+8%</div>
+          <div style={{ color: "#aaa", fontSize: 11 }}>🚀 매도 목표가</div>
+          <div style={{ color: "#6366f1", fontWeight: "bold", fontSize: 15 }}>{fmt(data.sell)}</div>
+          <div style={{ color: "#666", fontSize: 11 }}>+8%</div>
         </div>
         <div style={{ background: "#2d0d0d", border: "1px solid #ef4444", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>💀 손절가</div>
-          <div style={{ color: "#ef4444", fontWeight: "bold", fontSize: 14 }}>{fmt(data.stop_loss)}</div>
-          <div style={{ color: "#666", fontSize: 10 }}>-15%</div>
+          <div style={{ color: "#aaa", fontSize: 11 }}>💀 손절가</div>
+          <div style={{ color: "#ef4444", fontWeight: "bold", fontSize: 15 }}>{fmt(data.stop_loss)}</div>
+          <div style={{ color: "#666", fontSize: 11 }}>-15%</div>
         </div>
       </div>
     </div>
