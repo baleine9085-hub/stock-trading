@@ -5,6 +5,30 @@ import * as LightweightCharts from "lightweight-charts"
 const { createChart } = LightweightCharts
 const API_BASE = "https://stock-dashboard-production-19d7.up.railway.app"
 
+// 장 상태 배지
+function MarketBadge({ status }) {
+  const config = {
+    "정규": { color: "#22c55e", bg: "#0d2d0d", label: "정규" },
+    "장전시간외": { color: "#facc15", bg: "#2d2a0d", label: "장전" },
+    "장후시간외": { color: "#f97316", bg: "#2d1a0d", label: "장후" },
+    "시간외단일가": { color: "#ff3b3b", bg: "#2d0d0d", label: "단일가" },
+    "장마감": { color: "#aaa", bg: "#1a1a2e", label: "마감" },
+    "휴장": { color: "#555", bg: "#111", label: "휴장" },
+    "장외": { color: "#555", bg: "#111", label: "장외" },
+  }
+  const c = config[status] || config["정규"]
+  return (
+    <span style={{
+      background: c.bg, color: c.color,
+      border: `1px solid ${c.color}`,
+      fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: "bold"
+    }}>
+      {c.label}
+    </span>
+  )
+}
+
+// 뉴스 롤링
 function NewsMarquee({ news }) {
   return (
     <div style={{
@@ -12,7 +36,6 @@ function NewsMarquee({ news }) {
       borderBottom: "1px solid #ff3b3b44",
       padding: "8px 0",
       overflow: "hidden",
-      position: "relative",
     }}>
       <motion.div
         animate={{ x: ["100%", "-100%"] }}
@@ -29,17 +52,14 @@ function NewsMarquee({ news }) {
   )
 }
 
+// CNN 공포지수
 function FearGreedMeter({ score }) {
   const color = score >= 70 ? "#ff3b3b" : score >= 50 ? "#f97316" : score >= 30 ? "#facc15" : "#22c55e"
   const label = score >= 70 ? "극도의 공포 🚨" : score >= 50 ? "공포 ⚠️" : score >= 30 ? "중립 😐" : "탐욕 🤑"
   return (
     <div style={{
-      background: "#1a1a2e",
-      border: `1px solid ${color}`,
-      borderRadius: 12,
-      padding: "12px 20px",
-      textAlign: "center",
-      minWidth: 160,
+      background: "#1a1a2e", border: `1px solid ${color}`,
+      borderRadius: 12, padding: "12px 20px", textAlign: "center", minWidth: 160,
     }}>
       <div style={{ color: "#aaa", fontSize: 11, marginBottom: 4 }}>CNN 공포지수</div>
       <div style={{ color, fontSize: 32, fontWeight: "bold" }}>{score}</div>
@@ -48,6 +68,7 @@ function FearGreedMeter({ score }) {
   )
 }
 
+// 매크로 카드
 function MacroCard({ data }) {
   if (!data) return null
   const isUp = data.change_pct >= 0
@@ -55,9 +76,7 @@ function MacroCard({ data }) {
     <div style={{
       background: "#1a1a2e",
       border: `1px solid ${isUp ? "#ff3b3b44" : "#3b82f644"}`,
-      borderRadius: 10,
-      padding: "10px 16px",
-      minWidth: 130,
+      borderRadius: 10, padding: "10px 16px", minWidth: 130,
     }}>
       <div style={{ color: "#aaa", fontSize: 11 }}>{data.name}</div>
       <div style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>
@@ -70,6 +89,7 @@ function MacroCard({ data }) {
   )
 }
 
+// 캔들차트
 function CandleChart({ ticker }) {
   const chartRef = useRef(null)
   useEffect(() => {
@@ -107,6 +127,7 @@ function CandleChart({ ticker }) {
   return <div ref={chartRef} style={{ width: "100%", marginTop: 12 }} />
 }
 
+// 스나이퍼 브리핑 박스
 function SniperBox({ ticker, currency }) {
   const [data, setData] = useState(null)
   useEffect(() => {
@@ -117,52 +138,61 @@ function SniperBox({ ticker, currency }) {
 
   if (!data || data.error) return null
 
-  // ✅ undefined 방지
   const fmt = (v) => {
-    if (v === undefined || v === null || isNaN(v)) return "-"
-    return currency === "KRW" ? `₩${Number(v).toLocaleString()}` : `$${Number(v).toFixed(2)}`
+    if (v === undefined || v === null || isNaN(Number(v))) return "-"
+    return currency === "KRW"
+      ? `₩${Number(v).toLocaleString()}`
+      : `$${Number(v).toFixed(2)}`
   }
 
   return (
     <div style={{ marginTop: 12 }}>
-      {data.is_bad_news && (
-        <motion.div
-          animate={{ opacity: [1, 0.5, 1] }}
-          transition={{ duration: 1, repeat: Infinity }}
-          style={{
-            background: "#2d0d0d", border: "1px solid #ff3b3b",
-            borderRadius: 8, padding: "8px 12px", marginBottom: 8,
-            color: "#ff3b3b", fontSize: 13,
-          }}
-        >
-          ⚠️ 보스, 악재 감지됨. 벙커 타점 하향 조정 완료.
-        </motion.div>
-      )}
+      {/* 스나이퍼 브리핑 멘트 */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        style={{
+          background: data.is_bad_news ? "#1a0505" : "#05101a",
+          border: `1px solid ${data.is_bad_news ? "#ff3b3b" : "#3b82f6"}`,
+          borderRadius: 8, padding: "10px 14px", marginBottom: 10,
+          fontSize: 13, color: data.is_bad_news ? "#ff9999" : "#93c5fd",
+          fontStyle: "italic",
+        }}
+      >
+        🎯 {data.scenario}
+        {data.is_bad_news && data.discount_pct > 0 && (
+          <span style={{ color: "#ff3b3b", marginLeft: 8, fontStyle: "normal", fontWeight: "bold" }}>
+            [{data.discount_pct}% 벙커 하향 적용됨]
+          </span>
+        )}
+      </motion.div>
+
+      {/* 타점 박스 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         <div style={{ background: "#0d2d0d", border: "1px solid #22c55e", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>1차 정찰대 (20%)</div>
+          <div style={{ color: "#aaa", fontSize: 10 }}>🔍 1차 정찰대 (20%)</div>
           <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 14 }}>{fmt(data.buy1)}</div>
-          <div style={{ color: "#666", fontSize: 10 }}>-3%</div>
+          <div style={{ color: "#666", fontSize: 10 }}>현재가 -3%~</div>
         </div>
         <div style={{ background: "#1a2d0d", border: "1px solid #84cc16", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>2차 본대 (30%)</div>
+          <div style={{ color: "#aaa", fontSize: 10 }}>⚔️ 2차 본대 (30%)</div>
           <div style={{ color: "#84cc16", fontWeight: "bold", fontSize: 14 }}>{fmt(data.buy2)}</div>
-          <div style={{ color: "#666", fontSize: 10 }}>-7%</div>
+          <div style={{ color: "#666", fontSize: 10 }}>현재가 -7%~</div>
         </div>
         <div style={{ background: "#2d1a0d", border: "1px solid #f97316", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>3차 지하벙커 (50%)</div>
+          <div style={{ color: "#aaa", fontSize: 10 }}>🏴 3차 지하벙커 (50%)</div>
           <div style={{ color: "#f97316", fontWeight: "bold", fontSize: 14 }}>{fmt(data.buy3)}</div>
-          <div style={{ color: "#666", fontSize: 10 }}>-12%</div>
+          <div style={{ color: "#666", fontSize: 10 }}>현재가 -12%~</div>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
         <div style={{ background: "#0d0d2d", border: "1px solid #6366f1", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>매도 목표가</div>
+          <div style={{ color: "#aaa", fontSize: 10 }}>🚀 매도 목표가</div>
           <div style={{ color: "#6366f1", fontWeight: "bold", fontSize: 14 }}>{fmt(data.sell)}</div>
           <div style={{ color: "#666", fontSize: 10 }}>+8%</div>
         </div>
         <div style={{ background: "#2d0d0d", border: "1px solid #ef4444", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>손절가</div>
+          <div style={{ color: "#aaa", fontSize: 10 }}>💀 손절가</div>
           <div style={{ color: "#ef4444", fontWeight: "bold", fontSize: 14 }}>{fmt(data.stop_loss)}</div>
           <div style={{ color: "#666", fontSize: 10 }}>-15%</div>
         </div>
@@ -171,6 +201,7 @@ function SniperBox({ ticker, currency }) {
   )
 }
 
+// 종목 카드
 function StockCard({ stock, prevPrice }) {
   const [flash, setFlash] = useState(null)
   const [expanded, setExpanded] = useState(false)
@@ -197,11 +228,15 @@ function StockCard({ stock, prevPrice }) {
       onClick={() => setExpanded(!expanded)}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ color: "#666", fontSize: 12 }}>{stock.ticker}</span>
           <span style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>{stock.name}</span>
           {stock.source === "KIS실시간" && (
-            <span style={{ background: "#ff3b3b", color: "#fff", fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: "bold", display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{
+              background: "#ff3b3b", color: "#fff", fontSize: 10,
+              padding: "2px 6px", borderRadius: 4, fontWeight: "bold",
+              display: "flex", alignItems: "center", gap: 4
+            }}>
               <motion.span
                 animate={{ opacity: [1, 0, 1] }}
                 transition={{ duration: 1, repeat: Infinity }}
@@ -209,6 +244,9 @@ function StockCard({ stock, prevPrice }) {
               />
               LIVE
             </span>
+          )}
+          {stock.market_status && (
+            <MarketBadge status={stock.market_status} />
           )}
           <span style={{ color: "#555", fontSize: 11 }}>{expanded ? "▲ 접기" : "▼ 차트"}</span>
         </div>
@@ -218,13 +256,16 @@ function StockCard({ stock, prevPrice }) {
             animate={{ color: flash === "up" ? "#ff3b3b" : flash === "down" ? "#3b82f6" : "#ffffff" }}
             style={{ fontSize: 22, fontWeight: "bold" }}
           >
-            {stock.currency === "KRW" ? `₩${stock.price?.toLocaleString()}` : `$${stock.price?.toFixed(2)}`}
+            {stock.currency === "KRW"
+              ? `₩${stock.price?.toLocaleString()}`
+              : `$${stock.price?.toFixed(2)}`}
           </motion.div>
           <div style={{ color: isUp ? "#ff3b3b" : "#3b82f6", fontSize: 14 }}>
             {isUp ? "▲" : "▼"} {Math.abs(stock.change_pct)?.toFixed(2)}%
           </div>
         </div>
       </div>
+
       <AnimatePresence>
         {expanded && (
           <motion.div
@@ -248,6 +289,7 @@ export default function App() {
   const [macro, setMacro] = useState({})
   const [news, setNews] = useState(["시장 데이터 수집 중..."])
   const [fearGreed, setFearGreed] = useState(50)
+  const [marketStatus, setMarketStatus] = useState("정규")
   const [tab, setTab] = useState("kr")
   const [lastUpdated, setLastUpdated] = useState(null)
   const prevKr = useRef({})
@@ -262,6 +304,7 @@ export default function App() {
     fetch(`${API_BASE}/api/macro`).then(r => r.json()).then(setMacro)
     fetch(`${API_BASE}/api/news`).then(r => r.json()).then(setNews)
     fetch(`${API_BASE}/api/fear-greed`).then(r => r.json()).then(d => setFearGreed(d.score))
+    fetch(`${API_BASE}/api/market-status`).then(r => r.json()).then(d => setMarketStatus(d.status))
 
     const connect = () => {
       ws.current = new WebSocket("wss://stock-dashboard-production-19d7.up.railway.app/ws/stocks")
@@ -269,10 +312,10 @@ export default function App() {
         const data = JSON.parse(e.data)
         setKrStocks(prev => { prev.forEach(s => { prevKr.current[s.ticker] = s.price }); return data.kr })
         setUsStocks(prev => { prev.forEach(s => { prevUs.current[s.ticker] = s.price }); return data.us })
-        // ✅ 빈 객체/배열로 덮어씌우는 버그 수정
         if (data.macro && Object.keys(data.macro).length > 0) setMacro(data.macro)
         if (data.news && data.news.length > 0) setNews(data.news)
         if (data.fear_greed !== undefined) setFearGreed(data.fear_greed)
+        if (data.market_status) setMarketStatus(data.market_status)
         setLastUpdated(new Date().toLocaleTimeString())
       }
       ws.current.onclose = () => setTimeout(connect, 3000)
@@ -284,14 +327,15 @@ export default function App() {
   return (
     <div style={{
       background: isExtremeFear ? "#0d0000" : "#0d0d1a",
-      minHeight: "100vh", color: "#fff", fontFamily: "sans-serif",
+      minHeight: "100vh", color: "#fff", fontFamily: "monospace",
       boxShadow: isExtremeFear ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none",
       transition: "all 0.5s",
     }}>
+      {/* 사이렌 효과 */}
       {isExtremeFear && (
         <motion.div
-          animate={{ opacity: [0, 0.3, 0] }}
-          transition={{ duration: 1, repeat: Infinity }}
+          animate={{ opacity: [0, 0.4, 0] }}
+          transition={{ duration: 0.8, repeat: Infinity }}
           style={{
             position: "fixed", inset: 0,
             border: "4px solid #ff0000",
@@ -300,35 +344,48 @@ export default function App() {
         />
       )}
 
+      {/* 뉴스 롤링 */}
       {news.length > 0 && <NewsMarquee news={news} />}
 
-      <div style={{ background: "#13132a", padding: "12px 24px", borderBottom: "1px solid #222", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 20, fontWeight: "bold" }}>⚡ AI STOCK TERMINAL</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <FearGreedMeter score={fearGreed} />
-          <div style={{ fontSize: 12, color: "#aaa" }}>{lastUpdated ? `업데이트: ${lastUpdated}` : "연결 중..."}</div>
+      {/* 헤더 */}
+      <div style={{
+        background: "#13132a", padding: "12px 24px",
+        borderBottom: "1px solid #222",
+        display: "flex", justifyContent: "space-between", alignItems: "center"
+      }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: "bold" }}>⚡ AI STOCK TERMINAL</div>
+          <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>
+            국장: <MarketBadge status={marketStatus} />
+            <span style={{ marginLeft: 8 }}>{lastUpdated ? `업데이트: ${lastUpdated}` : "연결 중..."}</span>
+          </div>
         </div>
+        <FearGreedMeter score={fearGreed} />
       </div>
 
-      <div style={{ padding: "12px 24px", borderBottom: "1px solid #222", overflowX: "auto" }}>
-        <div style={{ display: "flex", gap: 12, minWidth: "max-content" }}>
+      {/* 매크로 지표 */}
+      <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
+        <div style={{ display: "flex", gap: 10, minWidth: "max-content" }}>
           {Object.entries(macro).map(([ticker, data]) => (
             <MacroCard key={ticker} data={data} />
           ))}
         </div>
       </div>
 
+      {/* 탭 */}
       <div style={{ display: "flex", borderBottom: "1px solid #222", paddingLeft: 24 }}>
         {[["kr", "🇰🇷 국내"], ["us", "🇺🇸 해외"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
             padding: "12px 24px", background: "none", border: "none",
             color: tab === key ? "#fff" : "#666",
             borderBottom: tab === key ? "2px solid #ff3b3b" : "2px solid transparent",
-            cursor: "pointer", fontSize: 14, fontWeight: tab === key ? "bold" : "normal"
+            cursor: "pointer", fontSize: 14, fontWeight: tab === key ? "bold" : "normal",
+            fontFamily: "monospace",
           }}>{label}</button>
         ))}
       </div>
 
+      {/* 종목 목록 */}
       <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
         {tab === "kr" && krStocks.map(stock => (
           <StockCard key={stock.ticker} stock={stock} prevPrice={prevKr.current[stock.ticker]} />
