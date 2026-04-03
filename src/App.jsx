@@ -13,8 +13,10 @@ function MarketBadge({ status }) {
     "장마감": { color: "#aaa", bg: "#1a1a2e", label: "마감" },
     "휴장": { color: "#555", bg: "#111", label: "휴장" },
     "장외": { color: "#555", bg: "#111", label: "장외" },
+    "프리마켓": { color: "#a78bfa", bg: "#1a0d2d", label: "프리" },
+    "애프터마켓": { color: "#f472b6", bg: "#2d0d1a", label: "애프터" },
   }
-  const c = config[status] || config["정규"]
+  const c = config[status] || config["휴장"]
   return (
     <span style={{
       background: c.bg, color: c.color,
