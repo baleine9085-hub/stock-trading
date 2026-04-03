@@ -1,5 +1,4 @@
-App.jsx 전체 교체 코드예요! Ctrl+A → Delete → 붙여넣기:
-jsximport { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createChart, CandlestickSeries } from "lightweight-charts"
 
