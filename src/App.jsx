@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from "react"
+App.jsx 전체 교체 코드예요! Ctrl+A → Delete → 붙여넣기:
+jsximport { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import * as LightweightCharts from "lightweight-charts"
+import { createChart, CandlestickSeries } from "lightweight-charts"
 
-const { createChart } = LightweightCharts
 const API_BASE = "https://stock-dashboard-production-19d7.up.railway.app"
 
-// 장 상태 배지
 function MarketBadge({ status }) {
   const config = {
     "정규": { color: "#22c55e", bg: "#0d2d0d", label: "정규" },
@@ -28,7 +27,6 @@ function MarketBadge({ status }) {
   )
 }
 
-// 뉴스 롤링
 function NewsMarquee({ news }) {
   return (
     <div style={{
@@ -52,7 +50,6 @@ function NewsMarquee({ news }) {
   )
 }
 
-// CNN 공포지수
 function FearGreedMeter({ score }) {
   const color = score >= 70 ? "#ff3b3b" : score >= 50 ? "#f97316" : score >= 30 ? "#facc15" : "#22c55e"
   const label = score >= 70 ? "극도의 공포 🚨" : score >= 50 ? "공포 ⚠️" : score >= 30 ? "중립 😐" : "탐욕 🤑"
@@ -68,7 +65,6 @@ function FearGreedMeter({ score }) {
   )
 }
 
-// 매크로 카드
 function MacroCard({ data }) {
   if (!data) return null
   const isUp = data.change_pct >= 0
@@ -89,7 +85,6 @@ function MacroCard({ data }) {
   )
 }
 
-// 캔들차트
 function CandleChart({ ticker }) {
   const chartRef = useRef(null)
   useEffect(() => {
@@ -101,7 +96,7 @@ function CandleChart({ ticker }) {
       grid: { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
       timeScale: { timeVisible: true, secondsVisible: false },
     })
-    const series = chart.addSeries(LightweightCharts.CandlestickSeries, {
+    const series = chart.addSeries(CandlestickSeries, {
       upColor: "#ff3b3b", downColor: "#3b82f6",
       borderUpColor: "#ff3b3b", borderDownColor: "#3b82f6",
       wickUpColor: "#ff3b3b", wickDownColor: "#3b82f6",
@@ -127,7 +122,6 @@ function CandleChart({ ticker }) {
   return <div ref={chartRef} style={{ width: "100%", marginTop: 12 }} />
 }
 
-// 스나이퍼 브리핑 박스
 function SniperBox({ ticker, currency }) {
   const [data, setData] = useState(null)
   useEffect(() => {
@@ -147,7 +141,6 @@ function SniperBox({ ticker, currency }) {
 
   return (
     <div style={{ marginTop: 12 }}>
-      {/* 스나이퍼 브리핑 멘트 */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -167,7 +160,6 @@ function SniperBox({ ticker, currency }) {
         )}
       </motion.div>
 
-      {/* 타점 박스 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         <div style={{ background: "#0d2d0d", border: "1px solid #22c55e", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
           <div style={{ color: "#aaa", fontSize: 10 }}>🔍 1차 정찰대 (20%)</div>
@@ -201,7 +193,6 @@ function SniperBox({ ticker, currency }) {
   )
 }
 
-// 종목 카드
 function StockCard({ stock, prevPrice }) {
   const [flash, setFlash] = useState(null)
   const [expanded, setExpanded] = useState(false)
@@ -245,9 +236,7 @@ function StockCard({ stock, prevPrice }) {
               LIVE
             </span>
           )}
-          {stock.market_status && (
-            <MarketBadge status={stock.market_status} />
-          )}
+          {stock.market_status && <MarketBadge status={stock.market_status} />}
           <span style={{ color: "#555", fontSize: 11 }}>{expanded ? "▲ 접기" : "▼ 차트"}</span>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -265,7 +254,6 @@ function StockCard({ stock, prevPrice }) {
           </div>
         </div>
       </div>
-
       <AnimatePresence>
         {expanded && (
           <motion.div
@@ -331,7 +319,6 @@ export default function App() {
       boxShadow: isExtremeFear ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none",
       transition: "all 0.5s",
     }}>
-      {/* 사이렌 효과 */}
       {isExtremeFear && (
         <motion.div
           animate={{ opacity: [0, 0.4, 0] }}
@@ -344,10 +331,8 @@ export default function App() {
         />
       )}
 
-      {/* 뉴스 롤링 */}
       {news.length > 0 && <NewsMarquee news={news} />}
 
-      {/* 헤더 */}
       <div style={{
         background: "#13132a", padding: "12px 24px",
         borderBottom: "1px solid #222",
@@ -363,7 +348,6 @@ export default function App() {
         <FearGreedMeter score={fearGreed} />
       </div>
 
-      {/* 매크로 지표 */}
       <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
         <div style={{ display: "flex", gap: 10, minWidth: "max-content" }}>
           {Object.entries(macro).map(([ticker, data]) => (
@@ -372,7 +356,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* 탭 */}
       <div style={{ display: "flex", borderBottom: "1px solid #222", paddingLeft: 24 }}>
         {[["kr", "🇰🇷 국내"], ["us", "🇺🇸 해외"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
@@ -385,7 +368,6 @@ export default function App() {
         ))}
       </div>
 
-      {/* 종목 목록 */}
       <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
         {tab === "kr" && krStocks.map(stock => (
           <StockCard key={stock.ticker} stock={stock} prevPrice={prevKr.current[stock.ticker]} />
