@@ -123,15 +123,22 @@ function CandleChart({ ticker }) {
   return <div ref={chartRef} style={{ width: "100%", marginTop: 12 }} />
 }
 
-function SniperBox({ ticker, currency }) {
-  const [data, setData] = useState(null)
+function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
+  const [data, setData] = useState(cachedRec || null)
+  const [loading, setLoading] = useState(!cachedRec)
+
   useEffect(() => {
+    if (cachedRec) {
+      setData(cachedRec)
+      setLoading(false)
+      return
+    }
+    setLoading(true)
     fetch(`${API_BASE}/api/recommend/${ticker}`)
       .then(r => r.json())
-      .then(setData)
-  }, [ticker])
-
-  if (!data || data.error) return null
+      .then(d => { setData(d); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [ticker, cachedRec])
 
   const fmt = (v) => {
     if (v === undefined || v === null || isNaN(Number(v))) return "-"
@@ -140,17 +147,46 @@ function SniperBox({ ticker, currency }) {
       : `$${Number(v).toFixed(2)}`
   }
 
+  const getTimestamp = () => {
+    if (!data?.updated_at) return null
+    const diff = Math.floor((Date.now() - new Date(data.updated_at).getTime()) / 60000)
+    if (data.is_emergency) return "🚨 긴급 업데이트됨"
+    if (diff < 1) return "방금 전략 수립됨"
+    if (diff < 60) return `최근 전략 수립: ${diff}분 전`
+    return `최근 전략 수립: ${Math.floor(diff / 60)}시간 전`
+  }
+
+  if (loading) {
+    return (
+      <motion.div
+        animate={{ opacity: [1, 0.4, 1] }}
+        transition={{ duration: 1.2, repeat: Infinity }}
+        style={{
+          marginTop: 12, background: "#0d0d1a",
+          border: "1px solid #333", borderRadius: 8,
+          padding: "20px", textAlign: "center",
+          color: "#555", fontSize: 14,
+        }}
+      >
+        ⚙️ 전략 수정 중...
+      </motion.div>
+    )
+  }
+
+  if (!data || data.error) return null
+
+  const isEmergency = data.is_emergency || isGlobalEmergency
+
   return (
     <div style={{ marginTop: 12 }}>
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         style={{
-          background: data.is_bad_news ? "#1a0505" : "#05101a",
-          border: `1px solid ${data.is_bad_news ? "#ff3b3b" : "#3b82f6"}`,
+          background: isEmergency ? "#1a0000" : data.is_bad_news ? "#1a0505" : "#05101a",
+          border: `1px solid ${isEmergency ? "#ff0000" : data.is_bad_news ? "#ff3b3b" : "#3b82f6"}`,
           borderRadius: 8, padding: "10px 14px", marginBottom: 10,
-          fontSize: 15, color: data.is_bad_news ? "#ff9999" : "#93c5fd",
-          fontStyle: "normal",
+          fontSize: 15, color: isEmergency ? "#ff6666" : data.is_bad_news ? "#ff9999" : "#93c5fd",
         }}
       >
         🎯 {data.scenario}
@@ -190,11 +226,70 @@ function SniperBox({ ticker, currency }) {
           <div style={{ color: "#666", fontSize: 11 }}>-15%</div>
         </div>
       </div>
+      {getTimestamp() && (
+        <div style={{
+          marginTop: 6, textAlign: "right", fontSize: 11,
+          color: data.is_emergency ? "#ff3b3b" : "#555"
+        }}>
+          {getTimestamp()}
+        </div>
+      )}
     </div>
   )
 }
 
-function StockCard({ stock, prevPrice }) {
+// 검색 결과 카드
+function SearchResultCard({ result, onClose, recommendations, isEmergency }) {
+  if (!result) return null
+  const isUp = result.change_pct >= 0
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      style={{
+        border: `1px solid ${isUp ? "#ff3b3b44" : "#3b82f644"}`,
+        borderRadius: 12, padding: "16px 20px",
+        background: "#1a1a2e", marginBottom: 12,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: "#666", fontSize: 12 }}>{result.ticker}</span>
+          <span style={{ color: "#ffd700", fontWeight: "bold", fontSize: 16 }}>
+            🔍 검색 결과
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 22, fontWeight: "bold" }}>
+              {result.currency === "KRW"
+                ? `₩${result.price?.toLocaleString()}`
+                : `$${result.price?.toFixed(2)}`}
+            </div>
+            <div style={{ color: isUp ? "#ff3b3b" : "#3b82f6", fontSize: 14 }}>
+              {isUp ? "▲" : "▼"} {Math.abs(result.change_pct)?.toFixed(2)}%
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: "none", border: "1px solid #555",
+            color: "#aaa", borderRadius: 6, padding: "4px 10px",
+            cursor: "pointer", fontSize: 12
+          }}>✕ 닫기</button>
+        </div>
+      </div>
+      <CandleChart ticker={result.ticker} />
+      <SniperBox
+        ticker={result.ticker}
+        currency={result.currency}
+        cachedRec={result.recommendation}
+        isGlobalEmergency={isEmergency}
+      />
+    </motion.div>
+  )
+}
+
+function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
   const [flash, setFlash] = useState(null)
   const [expanded, setExpanded] = useState(false)
 
@@ -238,6 +333,18 @@ function StockCard({ stock, prevPrice }) {
             </span>
           )}
           {stock.market_status && <MarketBadge status={stock.market_status} />}
+          {isEmergency && (
+            <motion.span
+              animate={{ opacity: [1, 0.3, 1] }}
+              transition={{ duration: 0.5, repeat: Infinity }}
+              style={{
+                background: "#ff0000", color: "#fff", fontSize: 9,
+                padding: "2px 5px", borderRadius: 4, fontWeight: "bold"
+              }}
+            >
+              🚨 긴급
+            </motion.span>
+          )}
           <span style={{ color: "#555", fontSize: 11 }}>{expanded ? "▲ 접기" : "▼ 차트"}</span>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -264,7 +371,12 @@ function StockCard({ stock, prevPrice }) {
             onClick={e => e.stopPropagation()}
           >
             <CandleChart ticker={stock.ticker} />
-            <SniperBox ticker={stock.ticker} currency={stock.currency} />
+            <SniperBox
+              ticker={stock.ticker}
+              currency={stock.currency}
+              cachedRec={cachedRec}
+              isGlobalEmergency={isEmergency}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -281,11 +393,35 @@ export default function App() {
   const [marketStatus, setMarketStatus] = useState("정규")
   const [tab, setTab] = useState("kr")
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [recommendations, setRecommendations] = useState({})
+  const [isEmergency, setIsEmergency] = useState(false)
+  const [emergencyReason, setEmergencyReason] = useState(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResult, setSearchResult] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
   const prevKr = useRef({})
   const prevUs = useRef({})
   const ws = useRef(null)
 
   const isExtremeFear = fearGreed >= 70
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setSearchResult(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/search/${searchQuery.trim()}`)
+      const data = await res.json()
+      if (data.error) {
+        alert(`검색 실패: ${data.error}`)
+      } else {
+        setSearchResult(data)
+      }
+    } catch (e) {
+      alert("검색 중 오류가 발생했습니다.")
+    }
+    setSearchLoading(false)
+  }
 
   useEffect(() => {
     fetch(`${API_BASE}/api/kr-stocks`).then(r => r.json()).then(setKrStocks)
@@ -305,6 +441,9 @@ export default function App() {
         if (data.news && data.news.length > 0) setNews(data.news)
         if (data.fear_greed !== undefined) setFearGreed(data.fear_greed)
         if (data.market_status) setMarketStatus(data.market_status)
+        if (data.recommendations) setRecommendations(data.recommendations)
+        if (data.is_emergency !== undefined) setIsEmergency(data.is_emergency)
+        if (data.emergency_reason !== undefined) setEmergencyReason(data.emergency_reason)
         setLastUpdated(new Date().toLocaleTimeString())
       }
       ws.current.onclose = () => setTimeout(connect, 3000)
@@ -315,12 +454,12 @@ export default function App() {
 
   return (
     <div style={{
-      background: isExtremeFear ? "#0d0000" : "#0d0d1a",
+      background: isExtremeFear || isEmergency ? "#0d0000" : "#0d0d1a",
       minHeight: "100vh", color: "#fff", fontFamily: "monospace",
-      boxShadow: isExtremeFear ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none",
+      boxShadow: isExtremeFear || isEmergency ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none",
       transition: "all 0.5s",
     }}>
-      {isExtremeFear && (
+      {(isExtremeFear || isEmergency) && (
         <motion.div
           animate={{ opacity: [0, 0.4, 0] }}
           transition={{ duration: 0.8, repeat: Infinity }}
@@ -333,6 +472,24 @@ export default function App() {
       )}
 
       {news.length > 0 && <NewsMarquee news={news} />}
+
+      {/* 긴급 알림 배너 */}
+      <AnimatePresence>
+        {isEmergency && emergencyReason && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            style={{
+              background: "#2d0000", borderBottom: "2px solid #ff0000",
+              padding: "8px 24px", color: "#ff6666",
+              fontSize: 14, fontWeight: "bold", textAlign: "center",
+            }}
+          >
+            🚨 긴급 알림: {emergencyReason} — 타점 즉시 재계산 완료
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div style={{
         background: "#13132a", padding: "12px 24px",
@@ -357,6 +514,32 @@ export default function App() {
         </div>
       </div>
 
+      {/* 검색창 */}
+      <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", display: "flex", gap: 8 }}>
+        <input
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && handleSearch()}
+          placeholder="🔍 종목 검색 (예: AAPL, 005930, Tesla)"
+          style={{
+            flex: 1, background: "#0d0d2a", border: "1px solid #333",
+            borderRadius: 8, padding: "8px 14px", color: "#fff",
+            fontSize: 14, fontFamily: "monospace", outline: "none",
+          }}
+        />
+        <button
+          onClick={handleSearch}
+          disabled={searchLoading}
+          style={{
+            background: "#ff3b3b", border: "none", borderRadius: 8,
+            padding: "8px 20px", color: "#fff", fontWeight: "bold",
+            cursor: "pointer", fontSize: 14, fontFamily: "monospace",
+          }}
+        >
+          {searchLoading ? "검색 중..." : "검색"}
+        </button>
+      </div>
+
       <div style={{ display: "flex", borderBottom: "1px solid #222", paddingLeft: 24 }}>
         {[["kr", "🇰🇷 국내"], ["us", "🇺🇸 해외"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
@@ -370,11 +553,35 @@ export default function App() {
       </div>
 
       <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
+        {/* 검색 결과 */}
+        <AnimatePresence>
+          {searchResult && (
+            <SearchResultCard
+              result={searchResult}
+              onClose={() => { setSearchResult(null); setSearchQuery("") }}
+              recommendations={recommendations}
+              isEmergency={isEmergency}
+            />
+          )}
+        </AnimatePresence>
+
         {tab === "kr" && krStocks.map(stock => (
-          <StockCard key={stock.ticker} stock={stock} prevPrice={prevKr.current[stock.ticker]} />
+          <StockCard
+            key={stock.ticker}
+            stock={stock}
+            prevPrice={prevKr.current[stock.ticker]}
+            cachedRec={recommendations[stock.ticker]}
+            isEmergency={isEmergency}
+          />
         ))}
         {tab === "us" && usStocks.map(stock => (
-          <StockCard key={stock.ticker} stock={stock} prevPrice={prevUs.current[stock.ticker]} />
+          <StockCard
+            key={stock.ticker}
+            stock={stock}
+            prevPrice={prevUs.current[stock.ticker]}
+            cachedRec={recommendations[stock.ticker]}
+            isEmergency={isEmergency}
+          />
         ))}
       </div>
     </div>
