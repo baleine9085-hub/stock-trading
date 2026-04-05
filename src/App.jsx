@@ -128,11 +128,7 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
   const [loading, setLoading] = useState(!cachedRec)
 
   useEffect(() => {
-    if (cachedRec) {
-      setData(cachedRec)
-      setLoading(false)
-      return
-    }
+    if (cachedRec) { setData(cachedRec); setLoading(false); return }
     setLoading(true)
     fetch(`${API_BASE}/api/recommend/${ticker}`)
       .then(r => r.json())
@@ -142,9 +138,7 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
 
   const fmt = (v) => {
     if (v === undefined || v === null || isNaN(Number(v))) return "-"
-    return currency === "KRW"
-      ? `₩${Number(v).toLocaleString()}`
-      : `$${Number(v).toFixed(2)}`
+    return currency === "KRW" ? `₩${Number(v).toLocaleString()}` : `$${Number(v).toFixed(2)}`
   }
 
   const getTimestamp = () => {
@@ -164,8 +158,7 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
         style={{
           marginTop: 12, background: "#0d0d1a",
           border: "1px solid #333", borderRadius: 8,
-          padding: "20px", textAlign: "center",
-          color: "#555", fontSize: 14,
+          padding: "20px", textAlign: "center", color: "#555", fontSize: 14,
         }}
       >
         ⚙️ 전략 수정 중...
@@ -174,7 +167,6 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
   }
 
   if (!data || data.error) return null
-
   const isEmergency = data.is_emergency || isGlobalEmergency
 
   return (
@@ -196,7 +188,6 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
           </span>
         )}
       </motion.div>
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         <div style={{ background: "#0d2d0d", border: "1px solid #22c55e", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
           <div style={{ color: "#aaa", fontSize: 11 }}>🔍 1차 정찰대 (20%)</div>
@@ -227,10 +218,7 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
         </div>
       </div>
       {getTimestamp() && (
-        <div style={{
-          marginTop: 6, textAlign: "right", fontSize: 11,
-          color: data.is_emergency ? "#ff3b3b" : "#555"
-        }}>
+        <div style={{ marginTop: 6, textAlign: "right", fontSize: 11, color: data.is_emergency ? "#ff3b3b" : "#555" }}>
           {getTimestamp()}
         </div>
       )}
@@ -238,7 +226,265 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
   )
 }
 
-// 검색 결과 카드
+// ===== SMART MONEY PICKS =====
+function ScoreBar({ score }) {
+  const color = score >= 85 ? "#22c55e" : score >= 70 ? "#84cc16" : score >= 55 ? "#facc15" : "#f97316"
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ flex: 1, background: "#111", borderRadius: 4, height: 6, overflow: "hidden" }}>
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${score}%` }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          style={{ height: "100%", background: color, borderRadius: 4 }}
+        />
+      </div>
+      <span style={{ color, fontWeight: "bold", fontSize: 13, minWidth: 30 }}>{score}</span>
+    </div>
+  )
+}
+
+function GradeBadge({ grade }) {
+  const config = {
+    "적극 매수": { color: "#fff", bg: "#dc2626" },
+    "매수": { color: "#fff", bg: "#16a34a" },
+    "관망": { color: "#fff", bg: "#d97706" },
+    "주의": { color: "#fff", bg: "#6b7280" },
+  }
+  const c = config[grade] || config["관망"]
+  return (
+    <span style={{
+      background: c.bg, color: c.color,
+      fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: "bold"
+    }}>
+      {grade}
+    </span>
+  )
+}
+
+function SmartMoneyPicks({ picks, onSelectTicker }) {
+  const [selectedAnalysis, setSelectedAnalysis] = useState(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisText, setAnalysisText] = useState("")
+
+  const handleRowClick = async (ticker) => {
+    if (selectedAnalysis === ticker) {
+      setSelectedAnalysis(null)
+      setAnalysisText("")
+      return
+    }
+    setSelectedAnalysis(ticker)
+    setAnalysisLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/stock-analysis/${ticker}`)
+      const data = await res.json()
+      setAnalysisText(data.analysis || "분석 생성 실패")
+    } catch {
+      setAnalysisText("분석 생성 중 오류가 발생했습니다.")
+    }
+    setAnalysisLoading(false)
+  }
+
+  if (!picks || picks.length === 0) {
+    return (
+      <div style={{
+        background: "#13132a", borderRadius: 12, padding: 24,
+        border: "1px solid #222", marginBottom: 24, textAlign: "center",
+        color: "#555", fontSize: 14
+      }}>
+        ⚙️ Smart Money Picks 계산 중... (첫 로드 시 수분 소요)
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background: "#13132a", borderRadius: 12, padding: 24, border: "1px solid #222", marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 16, fontWeight: "bold", color: "#ffd700" }}>
+          🏆 Final Top 10 — Smart Money Picks
+        </div>
+        <div style={{ fontSize: 11, color: "#555" }}>
+          {picks[0] && `최근 분석: ${new Date().toLocaleDateString('ko-KR')}`}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {selectedAnalysis && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            style={{
+              background: "#05101a", border: "1px solid #3b82f6",
+              borderRadius: 8, padding: 16, marginBottom: 16,
+            }}
+          >
+            <div style={{ color: "#3b82f6", fontSize: 12, marginBottom: 8, fontWeight: "bold" }}>
+              🤖 AI 투자 분석 — {selectedAnalysis}
+            </div>
+            {analysisLoading ? (
+              <motion.div
+                animate={{ opacity: [1, 0.4, 1] }}
+                transition={{ duration: 1, repeat: Infinity }}
+                style={{ color: "#555", fontSize: 13 }}
+              >
+                ⚙️ AI 분석 생성 중...
+              </motion.div>
+            ) : (
+              <div style={{ color: "#93c5fd", fontSize: 14, lineHeight: 1.7 }}>
+                {analysisText}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #222" }}>
+              {["#", "티커", "종목", "섹터", "AI 점수", "등급", "현재가", "업사이드"].map(h => (
+                <th key={h} style={{ padding: "8px 12px", color: "#555", textAlign: "left", fontWeight: "normal" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {picks.map((pick, i) => {
+              const isSelected = selectedAnalysis === pick.ticker
+              const fmt = (v) => pick.currency === "KRW" ? `₩${Number(v).toLocaleString()}` : `$${Number(v).toFixed(2)}`
+              return (
+                <motion.tr
+                  key={pick.ticker}
+                  onClick={() => handleRowClick(pick.ticker)}
+                  whileHover={{ background: "rgba(255,255,255,0.03)" }}
+                  style={{
+                    borderBottom: "1px solid #1a1a2e",
+                    cursor: "pointer",
+                    background: isSelected ? "rgba(59,130,246,0.1)" : "transparent",
+                  }}
+                >
+                  <td style={{ padding: "10px 12px", color: "#555" }}>{i + 1}</td>
+                  <td style={{ padding: "10px 12px", color: "#ffd700", fontWeight: "bold" }}>{pick.ticker}</td>
+                  <td style={{ padding: "10px 12px", color: "#fff" }}>{pick.name}</td>
+                  <td style={{ padding: "10px 12px", color: "#aaa" }}>{pick.sector}</td>
+                  <td style={{ padding: "10px 12px", minWidth: 120 }}>
+                    <ScoreBar score={pick.score} />
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    <GradeBadge grade={pick.grade} />
+                  </td>
+                  <td style={{ padding: "10px 12px", color: "#fff" }}>
+                    {fmt(pick.current_price)}
+                  </td>
+                  <td style={{ padding: "10px 12px", color: pick.upside >= 0 ? "#22c55e" : "#ef4444", fontWeight: "bold" }}>
+                    {pick.upside >= 0 ? "+" : ""}{pick.upside?.toFixed(1)}%
+                  </td>
+                </motion.tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11, color: "#333", marginTop: 12 }}>
+        * RSI, 모멘텀, MA50, 거래량 트렌드 4개 팩터 기반 AI 점수 | 클릭 시 AI 투자 분석 보기
+      </div>
+    </div>
+  )
+}
+
+// ===== 매크로 리포트 =====
+function MacroReport({ report }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!report || !report.summary) return null
+
+  return (
+    <div style={{ background: "#13132a", borderRadius: 12, padding: 24, border: "1px solid #222", marginBottom: 24 }}>
+      <div
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: expanded ? 20 : 0 }}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div style={{ fontSize: 16, fontWeight: "bold", color: "#a78bfa" }}>
+          🌐 글로벌 매크로 시장 분석 및 투자 전략
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{
+            background: "#2d1a4d", color: "#a78bfa",
+            fontSize: 11, padding: "3px 10px", borderRadius: 4, fontWeight: "bold"
+          }}>
+            {report.market_phase}
+          </span>
+          <span style={{ color: "#555", fontSize: 12 }}>{expanded ? "▲ 접기" : "▼ 펼치기"}</span>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            {/* 현황 요약 */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ color: "#ffd700", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>
+                1. 현재 상황 요약
+              </div>
+              <div style={{ color: "#ccc", fontSize: 14, lineHeight: 1.7, background: "#0d0d1a", borderRadius: 8, padding: 16 }}>
+                {report.summary}
+              </div>
+            </div>
+
+            {/* 과거 패턴 */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ color: "#ffd700", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>
+                2. 가장 유사한 과거 패턴 비교 — <span style={{ color: "#a78bfa" }}>{report.pattern}</span>
+              </div>
+              <div style={{ color: "#ccc", fontSize: 14, lineHeight: 1.7, background: "#0d0d1a", borderRadius: 8, padding: 16 }}>
+                {report.pattern_desc}
+              </div>
+            </div>
+
+            {/* 기회 & 리스크 */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div>
+                <div style={{ color: "#22c55e", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>
+                  3. 🎯 기회 알림
+                </div>
+                {report.opportunities?.map((opp, i) => (
+                  <div key={i} style={{
+                    background: "#0d2d0d", border: "1px solid #22c55e33",
+                    borderRadius: 8, padding: "10px 14px", marginBottom: 8,
+                    color: "#86efac", fontSize: 13, lineHeight: 1.5
+                  }}>
+                    ✅ {opp}
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div style={{ color: "#ef4444", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>
+                  4. ⚠️ 경고 알림
+                </div>
+                {report.risks?.map((risk, i) => (
+                  <div key={i} style={{
+                    background: "#2d0d0d", border: "1px solid #ef444433",
+                    borderRadius: 8, padding: "10px 14px", marginBottom: 8,
+                    color: "#fca5a5", fontSize: 13, lineHeight: 1.5
+                  }}>
+                    ⚠️ {risk}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: "#333", marginTop: 12 }}>
+              * VIX {report.vix?.toFixed(1)} | CNN 공포지수 {report.fear_greed} | 자동 생성됨
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 function SearchResultCard({ result, onClose, recommendations, isEmergency }) {
   if (!result) return null
   const isUp = result.change_pct >= 0
@@ -256,16 +502,12 @@ function SearchResultCard({ result, onClose, recommendations, isEmergency }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: "#666", fontSize: 12 }}>{result.ticker}</span>
-          <span style={{ color: "#ffd700", fontWeight: "bold", fontSize: 16 }}>
-            🔍 검색 결과
-          </span>
+          <span style={{ color: "#ffd700", fontWeight: "bold", fontSize: 16 }}>🔍 검색 결과</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 22, fontWeight: "bold" }}>
-              {result.currency === "KRW"
-                ? `₩${result.price?.toLocaleString()}`
-                : `$${result.price?.toFixed(2)}`}
+              {result.currency === "KRW" ? `₩${result.price?.toLocaleString()}` : `$${result.price?.toFixed(2)}`}
             </div>
             <div style={{ color: isUp ? "#ff3b3b" : "#3b82f6", fontSize: 14 }}>
               {isUp ? "▲" : "▼"} {Math.abs(result.change_pct)?.toFixed(2)}%
@@ -279,12 +521,7 @@ function SearchResultCard({ result, onClose, recommendations, isEmergency }) {
         </div>
       </div>
       <CandleChart ticker={result.ticker} />
-      <SniperBox
-        ticker={result.ticker}
-        currency={result.currency}
-        cachedRec={result.recommendation}
-        isGlobalEmergency={isEmergency}
-      />
+      <SniperBox ticker={result.ticker} currency={result.currency} cachedRec={result.recommendation} isGlobalEmergency={isEmergency} />
     </motion.div>
   )
 }
@@ -337,10 +574,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
             <motion.span
               animate={{ opacity: [1, 0.3, 1] }}
               transition={{ duration: 0.5, repeat: Infinity }}
-              style={{
-                background: "#ff0000", color: "#fff", fontSize: 9,
-                padding: "2px 5px", borderRadius: 4, fontWeight: "bold"
-              }}
+              style={{ background: "#ff0000", color: "#fff", fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: "bold" }}
             >
               🚨 긴급
             </motion.span>
@@ -353,9 +587,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
             animate={{ color: flash === "up" ? "#ff3b3b" : flash === "down" ? "#3b82f6" : "#ffffff" }}
             style={{ fontSize: 22, fontWeight: "bold" }}
           >
-            {stock.currency === "KRW"
-              ? `₩${stock.price?.toLocaleString()}`
-              : `$${stock.price?.toFixed(2)}`}
+            {stock.currency === "KRW" ? `₩${stock.price?.toLocaleString()}` : `$${stock.price?.toFixed(2)}`}
           </motion.div>
           <div style={{ color: isUp ? "#ff3b3b" : "#3b82f6", fontSize: 14 }}>
             {isUp ? "▲" : "▼"} {Math.abs(stock.change_pct)?.toFixed(2)}%
@@ -371,12 +603,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
             onClick={e => e.stopPropagation()}
           >
             <CandleChart ticker={stock.ticker} />
-            <SniperBox
-              ticker={stock.ticker}
-              currency={stock.currency}
-              cachedRec={cachedRec}
-              isGlobalEmergency={isEmergency}
-            />
+            <SniperBox ticker={stock.ticker} currency={stock.currency} cachedRec={cachedRec} isGlobalEmergency={isEmergency} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -399,6 +626,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResult, setSearchResult] = useState(null)
   const [searchLoading, setSearchLoading] = useState(false)
+  const [smartPicks, setSmartPicks] = useState([])
+  const [macroReport, setMacroReport] = useState({})
   const prevKr = useRef({})
   const prevUs = useRef({})
   const ws = useRef(null)
@@ -412,14 +641,9 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/search/${searchQuery.trim()}`)
       const data = await res.json()
-      if (data.error) {
-        alert(`검색 실패: ${data.error}`)
-      } else {
-        setSearchResult(data)
-      }
-    } catch (e) {
-      alert("검색 중 오류가 발생했습니다.")
-    }
+      if (data.error) alert(`검색 실패: ${data.error}`)
+      else setSearchResult(data)
+    } catch { alert("검색 중 오류가 발생했습니다.") }
     setSearchLoading(false)
   }
 
@@ -430,6 +654,8 @@ export default function App() {
     fetch(`${API_BASE}/api/news`).then(r => r.json()).then(setNews)
     fetch(`${API_BASE}/api/fear-greed`).then(r => r.json()).then(d => setFearGreed(d.score))
     fetch(`${API_BASE}/api/market-status`).then(r => r.json()).then(d => setMarketStatus(d.status))
+    fetch(`${API_BASE}/api/smart-picks`).then(r => r.json()).then(setSmartPicks)
+    fetch(`${API_BASE}/api/macro-report`).then(r => r.json()).then(setMacroReport)
 
     const connect = () => {
       ws.current = new WebSocket("wss://stock-dashboard-production-19d7.up.railway.app/ws/stocks")
@@ -444,6 +670,8 @@ export default function App() {
         if (data.recommendations) setRecommendations(data.recommendations)
         if (data.is_emergency !== undefined) setIsEmergency(data.is_emergency)
         if (data.emergency_reason !== undefined) setEmergencyReason(data.emergency_reason)
+        if (data.smart_picks && data.smart_picks.length > 0) setSmartPicks(data.smart_picks)
+        if (data.macro_report && data.macro_report.summary) setMacroReport(data.macro_report)
         setLastUpdated(new Date().toLocaleTimeString())
       }
       ws.current.onclose = () => setTimeout(connect, 3000)
@@ -463,17 +691,12 @@ export default function App() {
         <motion.div
           animate={{ opacity: [0, 0.4, 0] }}
           transition={{ duration: 0.8, repeat: Infinity }}
-          style={{
-            position: "fixed", inset: 0,
-            border: "4px solid #ff0000",
-            pointerEvents: "none", zIndex: 999,
-          }}
+          style={{ position: "fixed", inset: 0, border: "4px solid #ff0000", pointerEvents: "none", zIndex: 999 }}
         />
       )}
 
       {news.length > 0 && <NewsMarquee news={news} />}
 
-      {/* 긴급 알림 배너 */}
       <AnimatePresence>
         {isEmergency && emergencyReason && (
           <motion.div
@@ -482,8 +705,8 @@ export default function App() {
             exit={{ height: 0, opacity: 0 }}
             style={{
               background: "#2d0000", borderBottom: "2px solid #ff0000",
-              padding: "8px 24px", color: "#ff6666",
-              fontSize: 14, fontWeight: "bold", textAlign: "center",
+              padding: "8px 24px", color: "#ff6666", fontSize: 14,
+              fontWeight: "bold", textAlign: "center",
             }}
           >
             🚨 긴급 알림: {emergencyReason} — 타점 즉시 재계산 완료
@@ -520,7 +743,7 @@ export default function App() {
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           onKeyDown={e => e.key === "Enter" && handleSearch()}
-          placeholder="🔍 종목 검색 (예: AAPL, 005930, Tesla)"
+          placeholder="🔍 티커로 검색 (예: AAPL, 005930, 272210)"
           style={{
             flex: 1, background: "#0d0d2a", border: "1px solid #333",
             borderRadius: 8, padding: "8px 14px", color: "#fff",
@@ -541,7 +764,7 @@ export default function App() {
       </div>
 
       <div style={{ display: "flex", borderBottom: "1px solid #222", paddingLeft: 24 }}>
-        {[["kr", "🇰🇷 국내"], ["us", "🇺🇸 해외"]].map(([key, label]) => (
+        {[["kr", "🇰🇷 국내"], ["us", "🇺🇸 해외"], ["picks", "🏆 Smart Picks"], ["macro", "🌐 매크로 분석"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
             padding: "12px 24px", background: "none", border: "none",
             color: tab === key ? "#fff" : "#666",
@@ -552,8 +775,7 @@ export default function App() {
         ))}
       </div>
 
-      <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-        {/* 검색 결과 */}
+      <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
         <AnimatePresence>
           {searchResult && (
             <SearchResultCard
@@ -566,23 +788,17 @@ export default function App() {
         </AnimatePresence>
 
         {tab === "kr" && krStocks.map(stock => (
-          <StockCard
-            key={stock.ticker}
-            stock={stock}
-            prevPrice={prevKr.current[stock.ticker]}
-            cachedRec={recommendations[stock.ticker]}
-            isEmergency={isEmergency}
-          />
+          <StockCard key={stock.ticker} stock={stock} prevPrice={prevKr.current[stock.ticker]} cachedRec={recommendations[stock.ticker]} isEmergency={isEmergency} />
         ))}
         {tab === "us" && usStocks.map(stock => (
-          <StockCard
-            key={stock.ticker}
-            stock={stock}
-            prevPrice={prevUs.current[stock.ticker]}
-            cachedRec={recommendations[stock.ticker]}
-            isEmergency={isEmergency}
-          />
+          <StockCard key={stock.ticker} stock={stock} prevPrice={prevUs.current[stock.ticker]} cachedRec={recommendations[stock.ticker]} isEmergency={isEmergency} />
         ))}
+        {tab === "picks" && (
+          <SmartMoneyPicks picks={smartPicks} />
+        )}
+        {tab === "macro" && (
+          <MacroReport report={macroReport} />
+        )}
       </div>
     </div>
   )
