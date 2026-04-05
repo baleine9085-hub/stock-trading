@@ -228,9 +228,8 @@ function SectorFlowTable({ sectorFlow }) {
   if (!sectorFlow || sectorFlow.length === 0) return null
 
   // 국장/미장 분리
-  const KR_SECTORS = ["반도체", "기술", "자동차", "에너지", "방산"]
-  const krFlow = sectorFlow.filter(s => s.stocks?.some(st => /^\d{6}$/.test(st.ticker)))
-  const usFlow = sectorFlow.filter(s => s.stocks?.some(st => !/^\d{6}$/.test(st.ticker)))
+  const krFlow = sectorFlow.filter(s => s.market === "KR")
+const usFlow = sectorFlow.filter(s => s.market === "US")
 
   const Table = ({ data, title, flag }) => (
     <div style={{ background: "#13132a", border: "1px solid #222", borderRadius: 10, padding: "10px 14px", minWidth: 200, flexShrink: 0 }}>
