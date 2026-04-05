@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { createChart, CandlestickSeries } from "lightweight-charts"
+import { createChart, CandlestickSeries, LineSeries } from "lightweight-charts"
 
 const API_BASE = "https://stock-dashboard-production-19d7.up.railway.app"
 
@@ -9,6 +9,14 @@ const TIMEFRAMES = [
   { label: "5분",   interval: "5m",  period: "5d"  },
   { label: "1시간", interval: "60m", period: "1mo" },
   { label: "일봉",  interval: "1d",  period: "1y"  },
+]
+
+const COMPARE_OPTIONS = [
+  { label: "── 비교선 없음", ticker: null,    color: null      },
+  { label: "나스닥",         ticker: "^IXIC", color: "#a78bfa" },
+  { label: "코스피",         ticker: "^KS11", color: "#facc15" },
+  { label: "S&P500",         ticker: "^GSPC", color: "#60a5fa" },
+  { label: "VIX",            ticker: "^VIX",  color: "#f97316" },
 ]
 
 function MarketBadge({ status }) {
@@ -25,11 +33,7 @@ function MarketBadge({ status }) {
   }
   const c = config[status] || config["휴장"]
   return (
-    <span style={{
-      background: c.bg, color: c.color,
-      border: `1px solid ${c.color}`,
-      fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: "bold"
-    }}>
+    <span style={{ background: c.bg, color: c.color, border: `1px solid ${c.color}`, fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: "bold" }}>
       {c.label}
     </span>
   )
@@ -38,11 +42,8 @@ function MarketBadge({ status }) {
 function NewsMarquee({ news }) {
   return (
     <div style={{ background: "#0a0a1a", borderBottom: "1px solid #ff3b3b44", padding: "8px 0", overflow: "hidden" }}>
-      <motion.div
-        animate={{ x: ["100%", "-100%"] }}
-        transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
-        style={{ display: "flex", gap: 60, whiteSpace: "nowrap" }}
-      >
+      <motion.div animate={{ x: ["100%", "-100%"] }} transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
+        style={{ display: "flex", gap: 60, whiteSpace: "nowrap" }}>
         {[...news, ...news].map((item, i) => (
           <span key={i} style={{ color: "#ffd700", fontSize: 13 }}>⚡ {item}</span>
         ))}
@@ -77,25 +78,135 @@ function MacroCard({ data }) {
   )
 }
 
-function CandleChart({ ticker, onTimeframeChange, livePrice }) {
-  const containerRef = useRef(null)
-  const chartRef     = useRef(null)
-  const seriesRef    = useRef(null)
-  const [activeIdx, setActiveIdx] = useState(1)
-  const [loading, setLoading]     = useState(false)
-  const [error, setError]         = useState(null)
+// ── 🧠 AI 뉴스 감성 계기판 ────────────────────────────────────
+function NewsSentimentGauge({ sentiment }) {
+  if (!sentiment || sentiment.score === undefined) return null
+  const { score, pos_ratio = 50, neg_ratio = 50, label, color, is_danger, pos_keywords = [], neg_keywords = [] } = sentiment
 
+  // 반원 게이지 바늘 각도 (0=왼쪽 부정, 180=오른쪽 긍정)
+  const angleDeg = (score / 100) * 180
+  const angleRad = (angleDeg - 90) * (Math.PI / 180)
+  const needleX  = 60 + 32 * Math.cos(angleRad)
+  const needleY  = 58 + 32 * Math.sin(angleRad)
+
+  return (
+    <motion.div
+      animate={is_danger ? { boxShadow: ["0 0 0px #ff000000", "0 0 18px #ff0000aa", "0 0 0px #ff000000"] } : {}}
+      transition={is_danger ? { duration: 0.8, repeat: Infinity } : {}}
+      style={{
+        background: "#0a0a1a",
+        border: `1px solid ${is_danger ? "#ff0000" : color || "#2a2a3a"}`,
+        borderRadius: 10, padding: "10px 14px", marginTop: 10,
+        display: "flex", gap: 14, alignItems: "center",
+      }}
+    >
+      {/* SVG 게이지 */}
+      <svg width={120} height={68} viewBox="0 0 120 68" style={{ flexShrink: 0 }}>
+        {/* 배경 반원 */}
+        <path d="M 8 62 A 52 52 0 0 1 112 62" fill="none" stroke="#1a1a2e" strokeWidth={10} />
+        {/* 부정(빨강) 구간 */}
+        <path d="M 8 62 A 52 52 0 0 1 60 10" fill="none" stroke="#ff3b3b55" strokeWidth={10} />
+        {/* 긍정(초록) 구간 */}
+        <path d="M 60 10 A 52 52 0 0 1 112 62" fill="none" stroke="#22c55e55" strokeWidth={10} />
+        {/* 바늘 */}
+        <line x1={60} y1={62} x2={needleX} y2={needleY} stroke={color || "#fff"} strokeWidth={2.5} strokeLinecap="round" />
+        {/* 중심점 */}
+        <circle cx={60} cy={62} r={4} fill={color || "#fff"} />
+        {/* 점수 */}
+        <text x={60} y={52} textAnchor="middle" fill={color || "#fff"} fontSize={13} fontWeight="bold" fontFamily="monospace">{score}</text>
+        {/* 라벨 */}
+        <text x={14} y={68} fill="#ff3b3b" fontSize={8} fontFamily="monospace">부정</text>
+        <text x={90} y={68} fill="#22c55e" fontSize={8} fontFamily="monospace">긍정</text>
+      </svg>
+
+      {/* 상세 */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+          <div style={{ color: "#aaa", fontSize: 10 }}>🧠 AI 24H 뉴스 심리</div>
+          <div style={{ color, fontSize: 11, fontWeight: "bold" }}>{label}</div>
+        </div>
+        {/* 비율 바 */}
+        <div style={{ display: "flex", borderRadius: 3, overflow: "hidden", height: 7, marginBottom: 5 }}>
+          <motion.div initial={{ width: 0 }} animate={{ width: `${pos_ratio}%` }} transition={{ duration: 0.8 }}
+            style={{ background: "#22c55e" }} />
+          <motion.div initial={{ width: 0 }} animate={{ width: `${neg_ratio}%` }} transition={{ duration: 0.8 }}
+            style={{ background: "#ff3b3b" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 5 }}>
+          <span style={{ color: "#22c55e" }}>긍정 {pos_ratio}%</span>
+          <span style={{ color: "#ff3b3b" }}>부정 {neg_ratio}%</span>
+        </div>
+        {/* 키워드 태그 */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+          {pos_keywords.slice(0, 3).map(kw => (
+            <span key={kw} style={{ background: "#0d2d0d", color: "#22c55e", fontSize: 9, padding: "1px 5px", borderRadius: 3, border: "1px solid #22c55e33" }}>↑ {kw}</span>
+          ))}
+          {neg_keywords.slice(0, 3).map(kw => (
+            <span key={kw} style={{ background: "#2d0d0d", color: "#ff6666", fontSize: 9, padding: "1px 5px", borderRadius: 3, border: "1px solid #ff3b3b33" }}>↓ {kw}</span>
+          ))}
+        </div>
+        {is_danger && (
+          <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
+            style={{ marginTop: 5, color: "#ff3b3b", fontSize: 9, fontWeight: "bold" }}>
+            ⚠️ 부정 뉴스 80% 초과 — 전략적 관망 권고
+          </motion.div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+// ── 📊 섹터 수급 순위 미니 테이블 ────────────────────────────
+function SectorFlowTable({ sectorFlow }) {
+  if (!sectorFlow || sectorFlow.length === 0) return null
+  return (
+    <div style={{ background: "#13132a", border: "1px solid #222", borderRadius: 10, padding: "10px 14px", minWidth: 210, flexShrink: 0, alignSelf: "flex-start" }}>
+      <div style={{ color: "#ffd700", fontSize: 11, fontWeight: "bold", marginBottom: 8 }}>📊 섹터 수급 순위</div>
+      {sectorFlow.slice(0, 7).map((s, i) => {
+        const isUp = s.avg_change >= 0
+        return (
+          <div key={s.sector} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: i < 6 ? "1px solid #1a1a2e" : "none" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ color: "#333", fontSize: 10, minWidth: 14 }}>{i + 1}</span>
+              <span style={{ color: "#ccc", fontSize: 11 }}>{s.sector}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ color: isUp ? "#22c55e" : "#ff3b3b", fontSize: 10, fontWeight: "bold" }}>
+                {isUp ? "▲" : "▼"} {Math.abs(s.avg_change).toFixed(2)}%
+              </span>
+              <span style={{ background: isUp ? "#0d2d0d" : "#2d0d0d", color: isUp ? "#22c55e" : "#ff3b3b", fontSize: 9, padding: "1px 4px", borderRadius: 3 }}>
+                {isUp ? "유입" : "유출"}
+              </span>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── 🕯️ 캔들 차트 + 비교선 오버레이 ──────────────────────────
+function CandleChart({ ticker, onTimeframeChange, livePrice }) {
+  const containerRef    = useRef(null)
+  const chartRef        = useRef(null)
+  const seriesRef       = useRef(null)
+  const compareSeriesRef = useRef(null)
+  const [activeIdx, setActiveIdx]   = useState(1)
+  const [compareIdx, setCompareIdx] = useState(0)
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState(null)
   const tf = TIMEFRAMES[activeIdx]
 
+  // 차트 초기화
   useEffect(() => {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, {
-      width:  containerRef.current.clientWidth,
-      height: 220,
+      width: containerRef.current.clientWidth, height: 220,
       layout: { background: { color: "#0d0d1a" }, textColor: "#aaa" },
-      grid:   { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
+      grid: { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
       timeScale: { timeVisible: true, secondsVisible: false },
       rightPriceScale: { borderColor: "#1a1a2e" },
+      leftPriceScale: { visible: false, borderColor: "#2a2a3a" },
       crosshair: { mode: 1 },
     })
     const series = chart.addSeries(CandlestickSeries, {
@@ -107,47 +218,82 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
     seriesRef.current = series
 
     const ro = new ResizeObserver(() => {
-      if (containerRef.current && chartRef.current) {
+      if (containerRef.current && chartRef.current)
         chartRef.current.applyOptions({ width: containerRef.current.clientWidth })
-      }
     })
     ro.observe(containerRef.current)
-
     return () => {
       ro.disconnect()
       chart.remove()
-      chartRef.current  = null
+      chartRef.current = null
       seriesRef.current = null
+      compareSeriesRef.current = null
     }
   }, [])
 
+  // 메인 데이터 패치
   useEffect(() => {
     if (!seriesRef.current) return
-    setLoading(true)
-    setError(null)
-
+    setLoading(true); setError(null)
     fetch(`${API_BASE}/api/chart/${ticker}?interval=${tf.interval}&period=${tf.period}`)
       .then(r => r.json())
       .then(data => {
         if (!seriesRef.current) return
         if (!Array.isArray(data)) { setError("데이터 없음"); setLoading(false); return }
-
         const seen = new Set()
         const formatted = data
           .map(d => ({ time: d.timestamp, open: d.open, high: d.high, low: d.low, close: d.close }))
-          .filter(d => {
-            if (!d.time || isNaN(d.time) || seen.has(d.time)) return false
-            seen.add(d.time)
-            return true
-          })
+          .filter(d => { if (!d.time || isNaN(d.time) || seen.has(d.time)) return false; seen.add(d.time); return true })
           .sort((a, b) => a.time - b.time)
-
         seriesRef.current.setData(formatted)
         chartRef.current?.timeScale().fitContent()
         setLoading(false)
       })
       .catch(() => { setError("로딩 실패"); setLoading(false) })
   }, [ticker, activeIdx])
+
+  // 비교선 오버레이
+  useEffect(() => {
+    if (!chartRef.current) return
+    // 기존 비교선 제거
+    if (compareSeriesRef.current) {
+      try { chartRef.current.removeSeries(compareSeriesRef.current) } catch {}
+      compareSeriesRef.current = null
+    }
+    chartRef.current.priceScale("left").applyOptions({ visible: false })
+
+    const opt = COMPARE_OPTIONS[compareIdx]
+    if (!opt.ticker) return
+
+    fetch(`${API_BASE}/api/chart/${encodeURIComponent(opt.ticker)}?interval=${tf.interval}&period=${tf.period}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!Array.isArray(data) || !chartRef.current) return
+        const seen = new Set()
+        const pts = data
+          .map(d => ({ time: d.timestamp, value: d.close }))
+          .filter(d => { if (!d.time || isNaN(d.time) || seen.has(d.time)) return false; seen.add(d.time); return true })
+          .sort((a, b) => a.time - b.time)
+        if (pts.length === 0) return
+        const base = pts[0].value
+        const normalized = pts.map(d => ({ time: d.time, value: parseFloat(((d.value / base - 1) * 100).toFixed(3)) }))
+
+        const line = chartRef.current.addSeries(LineSeries, {
+          color: opt.color, lineWidth: 1.5,
+          priceScaleId: "left",
+          lastValueVisible: true,
+          priceLineVisible: false,
+          title: opt.label,
+        })
+        chartRef.current.priceScale("left").applyOptions({
+          visible: true, borderColor: "#2a2a3a",
+          scaleMargins: { top: 0.1, bottom: 0.1 },
+        })
+        line.setData(normalized)
+        compareSeriesRef.current = line
+      })
+      .catch(() => {})
+  }, [compareIdx, activeIdx, ticker])
 
   const handleTf = (e, idx) => {
     e.stopPropagation()
@@ -157,37 +303,43 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
 
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, marginBottom: 6 }}>
-        {TIMEFRAMES.map((t, i) => {
-          const isActive = i === activeIdx
-          return (
-            <button key={t.label} onClick={e => handleTf(e, i)} style={{
-              background:   isActive ? "#6366f1" : "#0d0d1a",
-              color:        isActive ? "#ffffff" : "#555",
-              border:       `1px solid ${isActive ? "#6366f1" : "#2a2a3a"}`,
-              borderRadius: 4, padding: "3px 10px", fontSize: 11,
-              cursor: "pointer", fontFamily: "monospace",
-              fontWeight: isActive ? "bold" : "normal",
-              transition: "all 0.15s",
-              boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
-            }}>
-              {t.label}
-            </button>
-          )
-        })}
+      {/* 컨트롤 행 */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        {/* 비교선 선택 */}
+        <select onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); setCompareIdx(parseInt(e.target.value)) }} value={compareIdx}
+          style={{ background: "#0d0d1a", color: "#a78bfa", border: "1px solid #2a2a3a", borderRadius: 4, padding: "3px 8px", fontSize: 11, cursor: "pointer", fontFamily: "monospace", outline: "none" }}>
+          {COMPARE_OPTIONS.map((opt, i) => <option key={i} value={i}>{opt.label}</option>)}
+        </select>
+        {/* 타임프레임 버튼 */}
+        <div style={{ display: "flex", gap: 4 }}>
+          {TIMEFRAMES.map((t, i) => {
+            const isActive = i === activeIdx
+            return (
+              <button key={t.label} onClick={e => handleTf(e, i)} style={{
+                background: isActive ? "#6366f1" : "#0d0d1a",
+                color: isActive ? "#fff" : "#555",
+                border: `1px solid ${isActive ? "#6366f1" : "#2a2a3a"}`,
+                borderRadius: 4, padding: "3px 10px", fontSize: 11,
+                cursor: "pointer", fontFamily: "monospace",
+                fontWeight: isActive ? "bold" : "normal", transition: "all 0.15s",
+                boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
+              }}>{t.label}</button>
+            )
+          })}
+        </div>
       </div>
-
+      {/* 비교선 안내 */}
+      {compareIdx > 0 && (
+        <div style={{ fontSize: 10, color: COMPARE_OPTIONS[compareIdx].color, marginBottom: 4, opacity: 0.8 }}>
+          ── {COMPARE_OPTIONS[compareIdx].label} 비교선 (좌측 축: % 변화율)
+        </div>
+      )}
+      {/* 차트 */}
       <div style={{ position: "relative" }}>
         {loading && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            style={{
-              position: "absolute", inset: 0, zIndex: 10,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "rgba(13,13,26,0.80)", borderRadius: 4,
-              color: "#555", fontSize: 12, gap: 6,
-            }}>
-            <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              style={{ display: "inline-block" }}>⏳</motion.span>
+            style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(13,13,26,0.80)", borderRadius: 4, color: "#555", fontSize: 12, gap: 6 }}>
+            <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} style={{ display: "inline-block" }}>⏳</motion.span>
             {tf.label} 데이터 로딩 중...
           </motion.div>
         )}
@@ -205,7 +357,6 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
 function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe = "5m" }) {
   const [data, setData]       = useState(cachedRec || null)
   const [loading, setLoading] = useState(!cachedRec)
-
   const isMinute = timeframe === "1m" || timeframe === "5m"
   const isHourly = timeframe === "60m"
   const isDaily  = timeframe === "1d"
@@ -214,16 +365,13 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
     if (cachedRec) { setData(cachedRec); setLoading(false); return }
     setLoading(true)
     fetch(`${API_BASE}/api/recommend/${ticker}`)
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
+      .then(r => r.json()).then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
   }, [ticker, cachedRec])
 
   const fmt = (v) => {
     if (v === undefined || v === null || isNaN(Number(v))) return "-"
     return currency === "KRW" ? `₩${Number(v).toLocaleString()}` : `$${Number(v).toFixed(2)}`
   }
-
   const getTimestamp = () => {
     if (!data?.updated_at) return null
     const diff = Math.floor((Date.now() - new Date(data.updated_at).getTime()) / 60000)
@@ -239,37 +387,25 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
       ⚙️ 전략 수정 중...
     </motion.div>
   )
-
   if (!data || data.error) return null
   const isEmergency = data.is_emergency || isGlobalEmergency
 
   const buy1Highlight = isMinute ? { boxShadow: "0 0 14px rgba(34,197,94,0.55)", border: "1px solid #22c55e", transform: "scale(1.03)" } : {}
   const buy3Highlight = isDaily  ? { boxShadow: "0 0 14px rgba(249,115,22,0.6)",  border: "1px solid #f97316", transform: "scale(1.03)" } : {}
-
   const buy1Label = isMinute ? "🔍 1차 정찰대 ★단기" : isHourly ? "🔍 1차 정찰대 (중기)" : "🔍 1차 정찰대 (20%)"
   const buy3Label = isDaily  ? "🏴 3차 지하벙커 ★장기" : isHourly ? "🏴 3차 지하벙커 (중기)" : "🏴 3차 지하벙커 (50%)"
-  const tfHint = isMinute ? "단기 정찰대 타점 강조 (분봉 모드)" : isHourly ? "중기 균형 분할 매수 (1시간봉)" : isDaily ? "장기 지하벙커 타점 강조 (일봉 모드)" : ""
+  const tfHint    = isMinute ? "단기 정찰대 타점 강조 (분봉)" : isHourly ? "중기 균형 분할 매수 (1시간봉)" : isDaily ? "장기 지하벙커 타점 강조 (일봉)" : ""
 
   return (
     <div style={{ marginTop: 12 }}>
-      {tfHint && (
-        <div style={{ fontSize: 11, color: "#6366f1", marginBottom: 6, textAlign: "right", opacity: 0.8 }}>
-          📐 {tfHint}
-        </div>
-      )}
+      {tfHint && <div style={{ fontSize: 11, color: "#6366f1", marginBottom: 6, textAlign: "right", opacity: 0.8 }}>📐 {tfHint}</div>}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-        style={{
-          background: isEmergency ? "#1a0000" : data.is_bad_news ? "#1a0505" : "#05101a",
-          border: `1px solid ${isEmergency ? "#ff0000" : data.is_bad_news ? "#ff3b3b" : "#3b82f6"}`,
-          borderRadius: 8, padding: "10px 14px", marginBottom: 10,
-          fontSize: 15, color: isEmergency ? "#ff6666" : data.is_bad_news ? "#ff9999" : "#93c5fd",
-        }}>
+        style={{ background: isEmergency ? "#1a0000" : data.is_bad_news ? "#1a0505" : "#05101a", border: `1px solid ${isEmergency ? "#ff0000" : data.is_bad_news ? "#ff3b3b" : "#3b82f6"}`, borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 15, color: isEmergency ? "#ff6666" : data.is_bad_news ? "#ff9999" : "#93c5fd" }}>
         🎯 {data.scenario}
         {data.is_bad_news && data.discount_pct > 0 && (
           <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>[{data.discount_pct}% 벙커 하향 적용됨]</span>
         )}
       </motion.div>
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         <div style={{ background: "#0d2d0d", borderRadius: 8, padding: "8px 12px", textAlign: "center", transition: "all 0.3s", ...buy1Highlight, border: buy1Highlight.border || "1px solid #22c55e" }}>
           <div style={{ color: "#aaa", fontSize: 11 }}>{buy1Label}</div>
@@ -289,7 +425,6 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
           {isDaily && <div style={{ color: "#f97316", fontSize: 9, marginTop: 2 }}>▶ 일봉 주목</div>}
         </div>
       </div>
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
         <div style={{ background: "#0d0d2d", border: "1px solid #6366f1", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
           <div style={{ color: "#aaa", fontSize: 11 }}>🚀 매도 목표가</div>
@@ -303,9 +438,7 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
         </div>
       </div>
       {getTimestamp() && (
-        <div style={{ marginTop: 6, textAlign: "right", fontSize: 11, color: data.is_emergency ? "#ff3b3b" : "#555" }}>
-          {getTimestamp()}
-        </div>
+        <div style={{ marginTop: 6, textAlign: "right", fontSize: 11, color: data.is_emergency ? "#ff3b3b" : "#555" }}>{getTimestamp()}</div>
       )}
     </div>
   )
@@ -325,18 +458,9 @@ function ScoreBar({ score }) {
 }
 
 function GradeBadge({ grade }) {
-  const config = {
-    "적극 매수": { color: "#fff", bg: "#dc2626" },
-    "매수":      { color: "#fff", bg: "#16a34a" },
-    "관망":      { color: "#fff", bg: "#d97706" },
-    "주의":      { color: "#fff", bg: "#6b7280" },
-  }
+  const config = { "적극 매수": { color: "#fff", bg: "#dc2626" }, "매수": { color: "#fff", bg: "#16a34a" }, "관망": { color: "#fff", bg: "#d97706" }, "주의": { color: "#fff", bg: "#6b7280" } }
   const c = config[grade] || config["관망"]
-  return (
-    <span style={{ background: c.bg, color: c.color, fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: "bold" }}>
-      {grade}
-    </span>
-  )
+  return <span style={{ background: c.bg, color: c.color, fontSize: 10, padding: "2px 7px", borderRadius: 4, fontWeight: "bold" }}>{grade}</span>
 }
 
 function SmartMoneyPicks({ picks }) {
@@ -347,28 +471,21 @@ function SmartMoneyPicks({ picks }) {
 
   const handleRowClick = async (ticker, currency) => {
     if (selectedAnalysis === ticker) { setSelectedAnalysis(null); setAnalysisText(""); setAnalysisRec(null); return }
-    setSelectedAnalysis(ticker)
-    setAnalysisLoading(true)
+    setSelectedAnalysis(ticker); setAnalysisLoading(true)
     try {
-      const [aRes, rRes] = await Promise.all([
-        fetch(`${API_BASE}/api/stock-analysis/${ticker}`),
-        fetch(`${API_BASE}/api/recommend/${ticker}`),
-      ])
-      const aData = await aRes.json()
-      const rData = await rRes.json()
+      const [aRes, rRes] = await Promise.all([fetch(`${API_BASE}/api/stock-analysis/${ticker}`), fetch(`${API_BASE}/api/recommend/${ticker}`)])
+      const aData = await aRes.json(); const rData = await rRes.json()
       setAnalysisText(aData.analysis || "분석 생성 실패")
       setAnalysisRec({ ...rData, currency })
     } catch { setAnalysisText("분석 생성 중 오류가 발생했습니다.") }
     setAnalysisLoading(false)
   }
 
-  if (!picks || picks.length === 0) {
-    return (
-      <div style={{ background: "#13132a", borderRadius: 12, padding: 24, border: "1px solid #222", marginBottom: 24, textAlign: "center", color: "#555", fontSize: 14 }}>
-        ⚙️ Smart Money Picks 계산 중... (첫 로드 시 수분 소요)
-      </div>
-    )
-  }
+  if (!picks || picks.length === 0) return (
+    <div style={{ background: "#13132a", borderRadius: 12, padding: 24, border: "1px solid #222", marginBottom: 24, textAlign: "center", color: "#555", fontSize: 14 }}>
+      ⚙️ Smart Money Picks 계산 중... (첫 로드 시 수분 소요)
+    </div>
+  )
 
   const fmtPrice = (v, currency) => {
     if (v === undefined || v === null || isNaN(Number(v))) return "-"
@@ -381,18 +498,13 @@ function SmartMoneyPicks({ picks }) {
         <div style={{ fontSize: 16, fontWeight: "bold", color: "#ffd700" }}>🏆 Final Top 10 — Smart Money Picks</div>
         <div style={{ fontSize: 11, color: "#555" }}>{picks[0] && `최근 분석: ${new Date().toLocaleDateString('ko-KR')}`}</div>
       </div>
-
       <AnimatePresence>
         {selectedAnalysis && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
             style={{ background: "#05101a", border: "1px solid #3b82f6", borderRadius: 8, padding: 16, marginBottom: 16 }}>
-            <div style={{ color: "#3b82f6", fontSize: 12, marginBottom: 8, fontWeight: "bold" }}>
-              🤖 AI 투자 분석 + 스나이퍼 타점 — {selectedAnalysis}
-            </div>
+            <div style={{ color: "#3b82f6", fontSize: 12, marginBottom: 8, fontWeight: "bold" }}>🤖 AI 투자 분석 + 스나이퍼 타점 — {selectedAnalysis}</div>
             {analysisLoading ? (
-              <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1, repeat: Infinity }} style={{ color: "#555", fontSize: 13 }}>
-                ⚙️ AI 분석 생성 중...
-              </motion.div>
+              <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1, repeat: Infinity }} style={{ color: "#555", fontSize: 13 }}>⚙️ AI 분석 생성 중...</motion.div>
             ) : (
               <>
                 <div style={{ color: "#93c5fd", fontSize: 14, lineHeight: 1.7, marginBottom: 14 }}>{analysisText}</div>
@@ -400,19 +512,17 @@ function SmartMoneyPicks({ picks }) {
                   <div>
                     <div style={{ background: analysisRec.is_bad_news ? "#1a0505" : "#05101a", border: `1px solid ${analysisRec.is_bad_news ? "#ff3b3b" : "#3b82f644"}`, borderRadius: 8, padding: "8px 12px", marginBottom: 10, color: analysisRec.is_bad_news ? "#ff9999" : "#93c5fd", fontSize: 13 }}>
                       🎯 {analysisRec.scenario}
-                      {analysisRec.is_bad_news && analysisRec.discount_pct > 0 && (
-                        <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>[{analysisRec.discount_pct}% 벙커 하향 적용됨]</span>
-                      )}
+                      {analysisRec.is_bad_news && analysisRec.discount_pct > 0 && <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>[{analysisRec.discount_pct}% 벙커 하향 적용됨]</span>}
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
                       {[
-                        { label: "🔍 1차 (20%)", value: analysisRec.buy1, color: "#22c55e", bg: "#0d2d0d", border: "#22c55e" },
-                        { label: "⚔️ 2차 (30%)", value: analysisRec.buy2, color: "#84cc16", bg: "#1a2d0d", border: "#84cc16" },
-                        { label: "🏴 3차 (50%)", value: analysisRec.buy3, color: "#f97316", bg: "#2d1a0d", border: "#f97316" },
-                        { label: "🚀 매도",      value: analysisRec.sell, color: "#6366f1", bg: "#0d0d2d", border: "#6366f1" },
-                        { label: "💀 손절",      value: analysisRec.stop_loss, color: "#ef4444", bg: "#2d0d0d", border: "#ef4444" },
+                        { label: "🔍 1차 (20%)", value: analysisRec.buy1,      color: "#22c55e", bg: "#0d2d0d", border: "#22c55e" },
+                        { label: "⚔️ 2차 (30%)", value: analysisRec.buy2,      color: "#84cc16", bg: "#1a2d0d", border: "#84cc16" },
+                        { label: "🏴 3차 (50%)", value: analysisRec.buy3,      color: "#f97316", bg: "#2d1a0d", border: "#f97316" },
+                        { label: "🚀 매도",       value: analysisRec.sell,      color: "#6366f1", bg: "#0d0d2d", border: "#6366f1" },
+                        { label: "💀 손절",       value: analysisRec.stop_loss, color: "#ef4444", bg: "#2d0d0d", border: "#ef4444" },
                       ].map(({ label, value, color, bg, border }) => (
-                        <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 8, padding: "8px", textAlign: "center" }}>
+                        <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 8, padding: 8, textAlign: "center" }}>
                           <div style={{ color: "#aaa", fontSize: 10 }}>{label}</div>
                           <div style={{ color, fontWeight: "bold", fontSize: 13 }}>{fmtPrice(value, analysisRec.currency)}</div>
                         </div>
@@ -425,7 +535,6 @@ function SmartMoneyPicks({ picks }) {
           </motion.div>
         )}
       </AnimatePresence>
-
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
@@ -459,9 +568,7 @@ function SmartMoneyPicks({ picks }) {
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: 11, color: "#333", marginTop: 12 }}>
-        * RSI, 모멘텀, MA50, 거래량 트렌드 4개 팩터 기반 AI 점수 | 클릭 시 AI 분석 + 스나이퍼 타점 보기
-      </div>
+      <div style={{ fontSize: 11, color: "#333", marginTop: 12 }}>* RSI, 모멘텀, MA50, 거래량 트렌드 4개 팩터 기반 AI 점수 | 클릭 시 AI 분석 + 스나이퍼 타점 보기</div>
     </div>
   )
 }
@@ -471,8 +578,7 @@ function MacroReport({ report }) {
   if (!report || !report.summary) return null
   return (
     <div style={{ background: "#13132a", borderRadius: 12, padding: 24, border: "1px solid #222", marginBottom: 24 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: expanded ? 20 : 0 }}
-        onClick={() => setExpanded(!expanded)}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: expanded ? 20 : 0 }} onClick={() => setExpanded(!expanded)}>
         <div style={{ fontSize: 16, fontWeight: "bold", color: "#a78bfa" }}>🌐 글로벌 매크로 시장 분석 및 투자 전략</div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ background: "#2d1a4d", color: "#a78bfa", fontSize: 11, padding: "3px 10px", borderRadius: 4, fontWeight: "bold" }}>{report.market_phase}</span>
@@ -487,9 +593,7 @@ function MacroReport({ report }) {
               <div style={{ color: "#ccc", fontSize: 14, lineHeight: 1.7, background: "#0d0d1a", borderRadius: 8, padding: 16 }}>{report.summary}</div>
             </div>
             <div style={{ marginBottom: 20 }}>
-              <div style={{ color: "#ffd700", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>
-                2. 가장 유사한 과거 패턴 비교 — <span style={{ color: "#a78bfa" }}>{report.pattern}</span>
-              </div>
+              <div style={{ color: "#ffd700", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>2. 가장 유사한 과거 패턴 비교 — <span style={{ color: "#a78bfa" }}>{report.pattern}</span></div>
               <div style={{ color: "#ccc", fontSize: 14, lineHeight: 1.7, background: "#0d0d1a", borderRadius: 8, padding: 16 }}>{report.pattern_desc}</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -514,7 +618,7 @@ function MacroReport({ report }) {
   )
 }
 
-function SearchResultCard({ result, onClose, isEmergency }) {
+function SearchResultCard({ result, onClose, isEmergency, newsSentiment }) {
   const [activeTimeframe, setActiveTimeframe] = useState("5m")
   if (!result) return null
   const isUp = result.change_pct >= 0
@@ -528,25 +632,20 @@ function SearchResultCard({ result, onClose, isEmergency }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 22, fontWeight: "bold" }}>
-              {result.currency === "KRW" ? `₩${result.price?.toLocaleString()}` : `$${result.price?.toFixed(2)}`}
-            </div>
-            <div style={{ color: isUp ? "#ff3b3b" : "#3b82f6", fontSize: 14 }}>
-              {isUp ? "▲" : "▼"} {Math.abs(result.change_pct)?.toFixed(2)}%
-            </div>
+            <div style={{ fontSize: 22, fontWeight: "bold" }}>{result.currency === "KRW" ? `₩${result.price?.toLocaleString()}` : `$${result.price?.toFixed(2)}`}</div>
+            <div style={{ color: isUp ? "#ff3b3b" : "#3b82f6", fontSize: 14 }}>{isUp ? "▲" : "▼"} {Math.abs(result.change_pct)?.toFixed(2)}%</div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "1px solid #555", color: "#aaa", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>
-            ✕ 닫기
-          </button>
+          <button onClick={onClose} style={{ background: "none", border: "1px solid #555", color: "#aaa", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>✕ 닫기</button>
         </div>
       </div>
       <CandleChart ticker={result.ticker} onTimeframeChange={setActiveTimeframe} livePrice={result.price} />
+      <NewsSentimentGauge sentiment={newsSentiment} />
       <SniperBox ticker={result.ticker} currency={result.currency} cachedRec={result.recommendation} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
     </motion.div>
   )
 }
 
-function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
+function StockCard({ stock, prevPrice, cachedRec, isEmergency, newsSentiment }) {
   const [flash, setFlash]                     = useState(null)
   const [expanded, setExpanded]               = useState(false)
   const [activeTimeframe, setActiveTimeframe] = useState("5m")
@@ -562,12 +661,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
 
   return (
     <motion.div layout
-      style={{
-        border: `1px solid ${flash === "up" ? "#ff3b3b" : flash === "down" ? "#3b82f6" : isUp ? "#ff3b3b44" : "#3b82f644"}`,
-        borderRadius: 12, padding: "16px 20px",
-        background: flash === "up" ? "rgba(255,59,59,0.15)" : flash === "down" ? "rgba(59,130,246,0.15)" : "#1a1a2e",
-        marginBottom: 12, cursor: "pointer", transition: "background 0.5s, border 0.5s",
-      }}
+      style={{ border: `1px solid ${flash === "up" ? "#ff3b3b" : flash === "down" ? "#3b82f6" : isUp ? "#ff3b3b44" : "#3b82f644"}`, borderRadius: 12, padding: "16px 20px", background: flash === "up" ? "rgba(255,59,59,0.15)" : flash === "down" ? "rgba(59,130,246,0.15)" : "#1a1a2e", marginBottom: 12, cursor: "pointer", transition: "background 0.5s, border 0.5s" }}
       onClick={() => setExpanded(!expanded)}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -576,17 +670,14 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
           <span style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>{stock.name}</span>
           {stock.source === "KIS실시간" && (
             <span style={{ background: "#ff3b3b", color: "#fff", fontSize: 10, padding: "2px 6px", borderRadius: 4, fontWeight: "bold", display: "flex", alignItems: "center", gap: 4 }}>
-              <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ duration: 1, repeat: Infinity }}
-                style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff", display: "inline-block" }} />
+              <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ duration: 1, repeat: Infinity }} style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff", display: "inline-block" }} />
               LIVE
             </span>
           )}
           {stock.market_status && <MarketBadge status={stock.market_status} />}
           {isEmergency && (
             <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 0.5, repeat: Infinity }}
-              style={{ background: "#ff0000", color: "#fff", fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: "bold" }}>
-              🚨 긴급
-            </motion.span>
+              style={{ background: "#ff0000", color: "#fff", fontSize: 9, padding: "2px 5px", borderRadius: 4, fontWeight: "bold" }}>🚨 긴급</motion.span>
           )}
           <span style={{ color: "#555", fontSize: 11 }}>{expanded ? "▲ 접기" : "▼ 차트"}</span>
         </div>
@@ -595,17 +686,15 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
             style={{ fontSize: 22, fontWeight: "bold" }}>
             {stock.currency === "KRW" ? `₩${stock.price?.toLocaleString()}` : `$${stock.price?.toFixed(2)}`}
           </motion.div>
-          <div style={{ color: isUp ? "#ff3b3b" : "#3b82f6", fontSize: 14 }}>
-            {isUp ? "▲" : "▼"} {Math.abs(stock.change_pct)?.toFixed(2)}%
-          </div>
+          <div style={{ color: isUp ? "#ff3b3b" : "#3b82f6", fontSize: 14 }}>{isUp ? "▲" : "▼"} {Math.abs(stock.change_pct)?.toFixed(2)}%</div>
         </div>
       </div>
-
       <AnimatePresence>
         {expanded && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
             onClick={e => e.stopPropagation()}>
             <CandleChart ticker={stock.ticker} onTimeframeChange={setActiveTimeframe} livePrice={stock.price} />
+            <NewsSentimentGauge sentiment={newsSentiment} />
             <SniperBox ticker={stock.ticker} currency={stock.currency} cachedRec={cachedRec} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
           </motion.div>
         )}
@@ -615,31 +704,35 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
 }
 
 export default function App() {
-  const [krStocks, setKrStocks]             = useState([])
-  const [usStocks, setUsStocks]             = useState([])
-  const [macro, setMacro]                   = useState({})
-  const [news, setNews]                     = useState(["시장 데이터 수집 중..."])
-  const [fearGreed, setFearGreed]           = useState(50)
-  const [marketStatus, setMarketStatus]     = useState("정규")
-  const [tab, setTab]                       = useState("kr")
-  const [lastUpdated, setLastUpdated]       = useState(null)
+  const [krStocks, setKrStocks]               = useState([])
+  const [usStocks, setUsStocks]               = useState([])
+  const [macro, setMacro]                     = useState({})
+  const [news, setNews]                       = useState(["시장 데이터 수집 중..."])
+  const [fearGreed, setFearGreed]             = useState(50)
+  const [marketStatus, setMarketStatus]       = useState("정규")
+  const [tab, setTab]                         = useState("kr")
+  const [lastUpdated, setLastUpdated]         = useState(null)
   const [recommendations, setRecommendations] = useState({})
-  const [isEmergency, setIsEmergency]       = useState(false)
+  const [isEmergency, setIsEmergency]         = useState(false)
   const [emergencyReason, setEmergencyReason] = useState(null)
-  const [searchQuery, setSearchQuery]       = useState("")
-  const [searchResult, setSearchResult]     = useState(null)
-  const [searchLoading, setSearchLoading]   = useState(false)
-  const [smartPicks, setSmartPicks]         = useState([])
-  const [macroReport, setMacroReport]       = useState({})
+  const [searchQuery, setSearchQuery]         = useState("")
+  const [searchResult, setSearchResult]       = useState(null)
+  const [searchLoading, setSearchLoading]     = useState(false)
+  const [smartPicks, setSmartPicks]           = useState([])
+  const [macroReport, setMacroReport]         = useState({})
+  const [newsSentiment, setNewsSentiment]     = useState({})
+  const [sectorFlow, setSectorFlow]           = useState([])
   const prevKr = useRef({})
   const prevUs = useRef({})
   const ws     = useRef(null)
-  const isExtremeFear = fearGreed >= 70
+
+  const isExtremeFear     = fearGreed >= 70
+  const isSentimentDanger = newsSentiment?.is_danger || false
+  const showDanger        = isExtremeFear || isEmergency || isSentimentDanger
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
-    setSearchLoading(true)
-    setSearchResult(null)
+    setSearchLoading(true); setSearchResult(null)
     try {
       const res  = await fetch(`${API_BASE}/api/search/${searchQuery.trim()}`)
       const data = await res.json()
@@ -658,6 +751,8 @@ export default function App() {
     fetch(`${API_BASE}/api/market-status`).then(r => r.json()).then(d => setMarketStatus(d.status))
     fetch(`${API_BASE}/api/smart-picks`).then(r => r.json()).then(setSmartPicks)
     fetch(`${API_BASE}/api/macro-report`).then(r => r.json()).then(setMacroReport)
+    fetch(`${API_BASE}/api/news-sentiment`).then(r => r.json()).then(setNewsSentiment)
+    fetch(`${API_BASE}/api/sector-flow`).then(r => r.json()).then(setSectorFlow)
 
     const connect = () => {
       ws.current = new WebSocket("wss://stock-dashboard-production-19d7.up.railway.app/ws/stocks")
@@ -674,6 +769,8 @@ export default function App() {
         if (data.emergency_reason !== undefined) setEmergencyReason(data.emergency_reason)
         if (data.smart_picks && data.smart_picks.length > 0) setSmartPicks(data.smart_picks)
         if (data.macro_report && data.macro_report.summary) setMacroReport(data.macro_report)
+        if (data.news_sentiment) setNewsSentiment(data.news_sentiment)
+        if (data.sector_flow && data.sector_flow.length > 0) setSectorFlow(data.sector_flow)
         setLastUpdated(new Date().toLocaleTimeString())
       }
       ws.current.onclose = () => setTimeout(connect, 3000)
@@ -683,19 +780,25 @@ export default function App() {
   }, [])
 
   return (
-    <div style={{
-      background: isExtremeFear || isEmergency ? "#0d0000" : "#0d0d1a",
-      minHeight: "100vh", color: "#fff", fontFamily: "monospace",
-      boxShadow: isExtremeFear || isEmergency ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none",
-      transition: "all 0.5s",
-    }}>
-      {(isExtremeFear || isEmergency) && (
+    <div style={{ background: showDanger ? "#0d0000" : "#0d0d1a", minHeight: "100vh", color: "#fff", fontFamily: "monospace", boxShadow: showDanger ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none", transition: "all 0.5s" }}>
+      {showDanger && (
         <motion.div animate={{ opacity: [0, 0.4, 0] }} transition={{ duration: 0.8, repeat: Infinity }}
           style={{ position: "fixed", inset: 0, border: "4px solid #ff0000", pointerEvents: "none", zIndex: 999 }} />
       )}
 
       {news.length > 0 && <NewsMarquee news={news} />}
 
+      {/* 감성 위험 배너 */}
+      <AnimatePresence>
+        {isSentimentDanger && !isEmergency && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            style={{ background: "#1a0000", borderBottom: "1px solid #ff000044", padding: "6px 24px", color: "#ff6666", fontSize: 12, fontWeight: "bold", textAlign: "center" }}>
+            🧠 AI 뉴스 감성 경고: 부정 뉴스 {newsSentiment?.neg_ratio}% 감지 — 시장 심리 극도의 부정
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 긴급 배너 */}
       <AnimatePresence>
         {isEmergency && emergencyReason && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
@@ -705,6 +808,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* 헤더 */}
       <div style={{ background: "#13132a", padding: "12px 24px", borderBottom: "1px solid #222", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: "bold" }}>⚡ AI STOCK TERMINAL</div>
@@ -716,15 +820,19 @@ export default function App() {
         <FearGreedMeter score={fearGreed} />
       </div>
 
+      {/* 매크로 카드 + 섹터 수급 */}
       <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
-        <div style={{ display: "flex", gap: 10, minWidth: "max-content" }}>
-          {Object.entries(macro).map(([ticker, data]) => <MacroCard key={ticker} data={data} />)}
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <div style={{ display: "flex", gap: 10, flex: 1, minWidth: "max-content" }}>
+            {Object.entries(macro).map(([ticker, data]) => <MacroCard key={ticker} data={data} />)}
+          </div>
+          <SectorFlowTable sectorFlow={sectorFlow} />
         </div>
       </div>
 
+      {/* 검색 */}
       <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", display: "flex", gap: 8 }}>
-        <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && handleSearch()}
+        <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()}
           placeholder="🔍 티커로 검색 (예: AAPL, 005930, 272210)"
           style={{ flex: 1, background: "#0d0d2a", border: "1px solid #333", borderRadius: 8, padding: "8px 14px", color: "#fff", fontSize: 14, fontFamily: "monospace", outline: "none" }} />
         <button onClick={handleSearch} disabled={searchLoading}
@@ -733,29 +841,25 @@ export default function App() {
         </button>
       </div>
 
+      {/* 탭 */}
       <div style={{ display: "flex", borderBottom: "1px solid #222", paddingLeft: 24 }}>
         {[["kr", "🇰🇷 국내"], ["us", "🇺🇸 해외"], ["picks", "🏆 Smart Picks"], ["macro", "🌐 매크로 분석"]].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} style={{
-            padding: "12px 24px", background: "none", border: "none",
-            color: tab === key ? "#fff" : "#666",
-            borderBottom: tab === key ? "2px solid #ff3b3b" : "2px solid transparent",
-            cursor: "pointer", fontSize: 14, fontWeight: tab === key ? "bold" : "normal", fontFamily: "monospace",
-          }}>{label}</button>
+          <button key={key} onClick={() => setTab(key)} style={{ padding: "12px 24px", background: "none", border: "none", color: tab === key ? "#fff" : "#666", borderBottom: tab === key ? "2px solid #ff3b3b" : "2px solid transparent", cursor: "pointer", fontSize: 14, fontWeight: tab === key ? "bold" : "normal", fontFamily: "monospace" }}>{label}</button>
         ))}
       </div>
 
       <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
         <AnimatePresence>
           {searchResult && (
-            <SearchResultCard result={searchResult} onClose={() => { setSearchResult(null); setSearchQuery("") }} isEmergency={isEmergency} />
+            <SearchResultCard result={searchResult} onClose={() => { setSearchResult(null); setSearchQuery("") }} isEmergency={isEmergency} newsSentiment={newsSentiment} />
           )}
         </AnimatePresence>
 
         {tab === "kr" && krStocks.map(stock => (
-          <StockCard key={stock.ticker} stock={stock} prevPrice={prevKr.current[stock.ticker]} cachedRec={recommendations[stock.ticker]} isEmergency={isEmergency} />
+          <StockCard key={stock.ticker} stock={stock} prevPrice={prevKr.current[stock.ticker]} cachedRec={recommendations[stock.ticker]} isEmergency={isEmergency} newsSentiment={newsSentiment} />
         ))}
         {tab === "us" && usStocks.map(stock => (
-          <StockCard key={stock.ticker} stock={stock} prevPrice={prevUs.current[stock.ticker]} cachedRec={recommendations[stock.ticker]} isEmergency={isEmergency} />
+          <StockCard key={stock.ticker} stock={stock} prevPrice={prevUs.current[stock.ticker]} cachedRec={recommendations[stock.ticker]} isEmergency={isEmergency} newsSentiment={newsSentiment} />
         ))}
         {tab === "picks" && <SmartMoneyPicks picks={smartPicks} />}
         {tab === "macro" && <MacroReport report={macroReport} />}
