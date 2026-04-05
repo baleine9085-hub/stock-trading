@@ -4,17 +4,24 @@ import { createChart, CandlestickSeries } from "lightweight-charts"
 
 const API_BASE = "https://stock-dashboard-production-19d7.up.railway.app"
 
+const TIMEFRAMES = [
+  { label: "1분",   interval: "1m",  period: "1d"  },
+  { label: "5분",   interval: "5m",  period: "5d"  },
+  { label: "1시간", interval: "60m", period: "1mo" },
+  { label: "일봉",  interval: "1d",  period: "1y"  },
+]
+
 function MarketBadge({ status }) {
   const config = {
-    "정규": { color: "#22c55e", bg: "#0d2d0d", label: "정규" },
-    "장전시간외": { color: "#facc15", bg: "#2d2a0d", label: "장전" },
-    "장후시간외": { color: "#f97316", bg: "#2d1a0d", label: "장후" },
-    "시간외단일가": { color: "#ff3b3b", bg: "#2d0d0d", label: "단일가" },
-    "장마감": { color: "#aaa", bg: "#1a1a2e", label: "마감" },
-    "휴장": { color: "#555", bg: "#111", label: "휴장" },
-    "장외": { color: "#555", bg: "#111", label: "장외" },
-    "프리마켓": { color: "#a78bfa", bg: "#1a0d2d", label: "프리" },
-    "애프터마켓": { color: "#f472b6", bg: "#2d0d1a", label: "애프터" },
+    "정규":        { color: "#22c55e", bg: "#0d2d0d",  label: "정규"   },
+    "장전시간외":  { color: "#facc15", bg: "#2d2a0d",  label: "장전"   },
+    "장후시간외":  { color: "#f97316", bg: "#2d1a0d",  label: "장후"   },
+    "시간외단일가":{ color: "#ff3b3b", bg: "#2d0d0d",  label: "단일가" },
+    "장마감":      { color: "#aaa",    bg: "#1a1a2e",  label: "마감"   },
+    "휴장":        { color: "#555",    bg: "#111",     label: "휴장"   },
+    "장외":        { color: "#555",    bg: "#111",     label: "장외"   },
+    "프리마켓":    { color: "#a78bfa", bg: "#1a0d2d",  label: "프리"   },
+    "애프터마켓":  { color: "#f472b6", bg: "#2d0d1a",  label: "애프터" },
   }
   const c = config[status] || config["휴장"]
   return (
@@ -70,42 +77,138 @@ function MacroCard({ data }) {
   )
 }
 
-function CandleChart({ ticker }) {
-  const chartRef = useRef(null)
+function CandleChart({ ticker, onTimeframeChange, livePrice }) {
+  const containerRef = useRef(null)
+  const chartRef     = useRef(null)
+  const seriesRef    = useRef(null)
+  const [activeIdx, setActiveIdx] = useState(1)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState(null)
+
+  const tf = TIMEFRAMES[activeIdx]
+
   useEffect(() => {
-    if (!chartRef.current) return
-    const chart = createChart(chartRef.current, {
-      width: chartRef.current.clientWidth, height: 200,
+    if (!containerRef.current) return
+    const chart = createChart(containerRef.current, {
+      width:  containerRef.current.clientWidth,
+      height: 220,
       layout: { background: { color: "#0d0d1a" }, textColor: "#aaa" },
-      grid: { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
+      grid:   { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
       timeScale: { timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: "#1a1a2e" },
+      crosshair: { mode: 1 },
     })
     const series = chart.addSeries(CandlestickSeries, {
       upColor: "#ff3b3b", downColor: "#3b82f6",
       borderUpColor: "#ff3b3b", borderDownColor: "#3b82f6",
       wickUpColor: "#ff3b3b", wickDownColor: "#3b82f6",
     })
-    fetch(`${API_BASE}/api/chart/${ticker}`)
+    chartRef.current  = chart
+    seriesRef.current = series
+
+    const ro = new ResizeObserver(() => {
+      if (containerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({ width: containerRef.current.clientWidth })
+      }
+    })
+    ro.observe(containerRef.current)
+
+    return () => {
+      ro.disconnect()
+      chart.remove()
+      chartRef.current  = null
+      seriesRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!seriesRef.current) return
+    setLoading(true)
+    setError(null)
+
+    fetch(`${API_BASE}/api/chart/${ticker}?interval=${tf.interval}&period=${tf.period}`)
       .then(r => r.json())
       .then(data => {
-        if (!Array.isArray(data)) return
-        const today = new Date().toISOString().split('T')[0]
-        const formatted = data.map((d) => {
-          const [h, m] = d.time.split(':')
-          const date = new Date(`${today}T${h}:${m}:00+09:00`)
-          return { time: Math.floor(date.getTime() / 1000), open: d.open, high: d.high, low: d.low, close: d.close }
-        }).filter(d => !isNaN(d.time))
-        series.setData(formatted)
-        chart.timeScale().fitContent()
+        if (!seriesRef.current) return
+        if (!Array.isArray(data)) { setError("데이터 없음"); setLoading(false); return }
+
+        const seen = new Set()
+        const formatted = data
+          .map(d => ({ time: d.timestamp, open: d.open, high: d.high, low: d.low, close: d.close }))
+          .filter(d => {
+            if (!d.time || isNaN(d.time) || seen.has(d.time)) return false
+            seen.add(d.time)
+            return true
+          })
+          .sort((a, b) => a.time - b.time)
+
+        seriesRef.current.setData(formatted)
+        chartRef.current?.timeScale().fitContent()
+        setLoading(false)
       })
-    return () => chart.remove()
-  }, [ticker])
-  return <div ref={chartRef} style={{ width: "100%", marginTop: 12 }} />
+      .catch(() => { setError("로딩 실패"); setLoading(false) })
+  }, [ticker, activeIdx])
+
+  const handleTf = (e, idx) => {
+    e.stopPropagation()
+    setActiveIdx(idx)
+    onTimeframeChange?.(TIMEFRAMES[idx].interval)
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, marginBottom: 6 }}>
+        {TIMEFRAMES.map((t, i) => {
+          const isActive = i === activeIdx
+          return (
+            <button key={t.label} onClick={e => handleTf(e, i)} style={{
+              background:   isActive ? "#6366f1" : "#0d0d1a",
+              color:        isActive ? "#ffffff" : "#555",
+              border:       `1px solid ${isActive ? "#6366f1" : "#2a2a3a"}`,
+              borderRadius: 4, padding: "3px 10px", fontSize: 11,
+              cursor: "pointer", fontFamily: "monospace",
+              fontWeight: isActive ? "bold" : "normal",
+              transition: "all 0.15s",
+              boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
+            }}>
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      <div style={{ position: "relative" }}>
+        {loading && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            style={{
+              position: "absolute", inset: 0, zIndex: 10,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(13,13,26,0.80)", borderRadius: 4,
+              color: "#555", fontSize: 12, gap: 6,
+            }}>
+            <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              style={{ display: "inline-block" }}>⏳</motion.span>
+            {tf.label} 데이터 로딩 중...
+          </motion.div>
+        )}
+        {error && !loading && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "#ff3b3b", fontSize: 12 }}>
+            ⚠️ {error}
+          </div>
+        )}
+        <div ref={containerRef} style={{ width: "100%" }} />
+      </div>
+    </div>
+  )
 }
 
-function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
-  const [data, setData] = useState(cachedRec || null)
+function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe = "5m" }) {
+  const [data, setData]       = useState(cachedRec || null)
   const [loading, setLoading] = useState(!cachedRec)
+
+  const isMinute = timeframe === "1m" || timeframe === "5m"
+  const isHourly = timeframe === "60m"
+  const isDaily  = timeframe === "1d"
 
   useEffect(() => {
     if (cachedRec) { setData(cachedRec); setLoading(false); return }
@@ -140,8 +243,20 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
   if (!data || data.error) return null
   const isEmergency = data.is_emergency || isGlobalEmergency
 
+  const buy1Highlight = isMinute ? { boxShadow: "0 0 14px rgba(34,197,94,0.55)", border: "1px solid #22c55e", transform: "scale(1.03)" } : {}
+  const buy3Highlight = isDaily  ? { boxShadow: "0 0 14px rgba(249,115,22,0.6)",  border: "1px solid #f97316", transform: "scale(1.03)" } : {}
+
+  const buy1Label = isMinute ? "🔍 1차 정찰대 ★단기" : isHourly ? "🔍 1차 정찰대 (중기)" : "🔍 1차 정찰대 (20%)"
+  const buy3Label = isDaily  ? "🏴 3차 지하벙커 ★장기" : isHourly ? "🏴 3차 지하벙커 (중기)" : "🏴 3차 지하벙커 (50%)"
+  const tfHint = isMinute ? "단기 정찰대 타점 강조 (분봉 모드)" : isHourly ? "중기 균형 분할 매수 (1시간봉)" : isDaily ? "장기 지하벙커 타점 강조 (일봉 모드)" : ""
+
   return (
     <div style={{ marginTop: 12 }}>
+      {tfHint && (
+        <div style={{ fontSize: 11, color: "#6366f1", marginBottom: 6, textAlign: "right", opacity: 0.8 }}>
+          📐 {tfHint}
+        </div>
+      )}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
         style={{
           background: isEmergency ? "#1a0000" : data.is_bad_news ? "#1a0505" : "#05101a",
@@ -154,23 +269,27 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency }) {
           <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>[{data.discount_pct}% 벙커 하향 적용됨]</span>
         )}
       </motion.div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-        <div style={{ background: "#0d2d0d", border: "1px solid #22c55e", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 11 }}>🔍 1차 정찰대 (20%)</div>
+        <div style={{ background: "#0d2d0d", borderRadius: 8, padding: "8px 12px", textAlign: "center", transition: "all 0.3s", ...buy1Highlight, border: buy1Highlight.border || "1px solid #22c55e" }}>
+          <div style={{ color: "#aaa", fontSize: 11 }}>{buy1Label}</div>
           <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 15 }}>{fmt(data.buy1)}</div>
           <div style={{ color: "#666", fontSize: 11 }}>현재가 -3%~</div>
+          {isMinute && <div style={{ color: "#22c55e", fontSize: 9, marginTop: 2 }}>▶ 분봉 주목</div>}
         </div>
         <div style={{ background: "#1a2d0d", border: "1px solid #84cc16", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
           <div style={{ color: "#aaa", fontSize: 11 }}>⚔️ 2차 본대 (30%)</div>
           <div style={{ color: "#84cc16", fontWeight: "bold", fontSize: 15 }}>{fmt(data.buy2)}</div>
           <div style={{ color: "#666", fontSize: 11 }}>현재가 -7%~</div>
         </div>
-        <div style={{ background: "#2d1a0d", border: "1px solid #f97316", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 11 }}>🏴 3차 지하벙커 (50%)</div>
+        <div style={{ background: "#2d1a0d", borderRadius: 8, padding: "8px 12px", textAlign: "center", transition: "all 0.3s", ...buy3Highlight, border: buy3Highlight.border || "1px solid #f97316" }}>
+          <div style={{ color: "#aaa", fontSize: 11 }}>{buy3Label}</div>
           <div style={{ color: "#f97316", fontWeight: "bold", fontSize: 15 }}>{fmt(data.buy3)}</div>
           <div style={{ color: "#666", fontSize: 11 }}>현재가 -12%~</div>
+          {isDaily && <div style={{ color: "#f97316", fontSize: 9, marginTop: 2 }}>▶ 일봉 주목</div>}
         </div>
       </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
         <div style={{ background: "#0d0d2d", border: "1px solid #6366f1", borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
           <div style={{ color: "#aaa", fontSize: 11 }}>🚀 매도 목표가</div>
@@ -208,9 +327,9 @@ function ScoreBar({ score }) {
 function GradeBadge({ grade }) {
   const config = {
     "적극 매수": { color: "#fff", bg: "#dc2626" },
-    "매수": { color: "#fff", bg: "#16a34a" },
-    "관망": { color: "#fff", bg: "#d97706" },
-    "주의": { color: "#fff", bg: "#6b7280" },
+    "매수":      { color: "#fff", bg: "#16a34a" },
+    "관망":      { color: "#fff", bg: "#d97706" },
+    "주의":      { color: "#fff", bg: "#6b7280" },
   }
   const c = config[grade] || config["관망"]
   return (
@@ -222,31 +341,24 @@ function GradeBadge({ grade }) {
 
 function SmartMoneyPicks({ picks }) {
   const [selectedAnalysis, setSelectedAnalysis] = useState(null)
-  const [analysisLoading, setAnalysisLoading] = useState(false)
-  const [analysisText, setAnalysisText] = useState("")
-  const [analysisRec, setAnalysisRec] = useState(null)
+  const [analysisLoading, setAnalysisLoading]   = useState(false)
+  const [analysisText, setAnalysisText]         = useState("")
+  const [analysisRec, setAnalysisRec]           = useState(null)
 
   const handleRowClick = async (ticker, currency) => {
-    if (selectedAnalysis === ticker) {
-      setSelectedAnalysis(null)
-      setAnalysisText("")
-      setAnalysisRec(null)
-      return
-    }
+    if (selectedAnalysis === ticker) { setSelectedAnalysis(null); setAnalysisText(""); setAnalysisRec(null); return }
     setSelectedAnalysis(ticker)
     setAnalysisLoading(true)
     try {
-      const [analysisRes, recRes] = await Promise.all([
+      const [aRes, rRes] = await Promise.all([
         fetch(`${API_BASE}/api/stock-analysis/${ticker}`),
-        fetch(`${API_BASE}/api/recommend/${ticker}`)
+        fetch(`${API_BASE}/api/recommend/${ticker}`),
       ])
-      const analysisData = await analysisRes.json()
-      const recData = await recRes.json()
-      setAnalysisText(analysisData.analysis || "분석 생성 실패")
-      setAnalysisRec({ ...recData, currency })
-    } catch {
-      setAnalysisText("분석 생성 중 오류가 발생했습니다.")
-    }
+      const aData = await aRes.json()
+      const rData = await rRes.json()
+      setAnalysisText(aData.analysis || "분석 생성 실패")
+      setAnalysisRec({ ...rData, currency })
+    } catch { setAnalysisText("분석 생성 중 오류가 발생했습니다.") }
     setAnalysisLoading(false)
   }
 
@@ -272,59 +384,39 @@ function SmartMoneyPicks({ picks }) {
 
       <AnimatePresence>
         {selectedAnalysis && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-            style={{ background: "#05101a", border: "1px solid #3b82f6", borderRadius: 8, padding: 16, marginBottom: 16 }}
-          >
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+            style={{ background: "#05101a", border: "1px solid #3b82f6", borderRadius: 8, padding: 16, marginBottom: 16 }}>
             <div style={{ color: "#3b82f6", fontSize: 12, marginBottom: 8, fontWeight: "bold" }}>
               🤖 AI 투자 분석 + 스나이퍼 타점 — {selectedAnalysis}
             </div>
             {analysisLoading ? (
-              <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1, repeat: Infinity }}
-                style={{ color: "#555", fontSize: 13 }}>
+              <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1, repeat: Infinity }} style={{ color: "#555", fontSize: 13 }}>
                 ⚙️ AI 분석 생성 중...
               </motion.div>
             ) : (
               <>
-                <div style={{ color: "#93c5fd", fontSize: 14, lineHeight: 1.7, marginBottom: 14 }}>
-                  {analysisText}
-                </div>
+                <div style={{ color: "#93c5fd", fontSize: 14, lineHeight: 1.7, marginBottom: 14 }}>{analysisText}</div>
                 {analysisRec && !analysisRec.error && (
                   <div>
-                    <div style={{
-                      background: analysisRec.is_bad_news ? "#1a0505" : "#05101a",
-                      border: `1px solid ${analysisRec.is_bad_news ? "#ff3b3b" : "#3b82f644"}`,
-                      borderRadius: 8, padding: "8px 12px", marginBottom: 10,
-                      color: analysisRec.is_bad_news ? "#ff9999" : "#93c5fd", fontSize: 13,
-                    }}>
+                    <div style={{ background: analysisRec.is_bad_news ? "#1a0505" : "#05101a", border: `1px solid ${analysisRec.is_bad_news ? "#ff3b3b" : "#3b82f644"}`, borderRadius: 8, padding: "8px 12px", marginBottom: 10, color: analysisRec.is_bad_news ? "#ff9999" : "#93c5fd", fontSize: 13 }}>
                       🎯 {analysisRec.scenario}
                       {analysisRec.is_bad_news && analysisRec.discount_pct > 0 && (
-                        <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>
-                          [{analysisRec.discount_pct}% 벙커 하향 적용됨]
-                        </span>
+                        <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>[{analysisRec.discount_pct}% 벙커 하향 적용됨]</span>
                       )}
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
-                      <div style={{ background: "#0d2d0d", border: "1px solid #22c55e", borderRadius: 8, padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: "#aaa", fontSize: 10 }}>🔍 1차 (20%)</div>
-                        <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 13 }}>{fmtPrice(analysisRec.buy1, analysisRec.currency)}</div>
-                      </div>
-                      <div style={{ background: "#1a2d0d", border: "1px solid #84cc16", borderRadius: 8, padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: "#aaa", fontSize: 10 }}>⚔️ 2차 (30%)</div>
-                        <div style={{ color: "#84cc16", fontWeight: "bold", fontSize: 13 }}>{fmtPrice(analysisRec.buy2, analysisRec.currency)}</div>
-                      </div>
-                      <div style={{ background: "#2d1a0d", border: "1px solid #f97316", borderRadius: 8, padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: "#aaa", fontSize: 10 }}>🏴 3차 (50%)</div>
-                        <div style={{ color: "#f97316", fontWeight: "bold", fontSize: 13 }}>{fmtPrice(analysisRec.buy3, analysisRec.currency)}</div>
-                      </div>
-                      <div style={{ background: "#0d0d2d", border: "1px solid #6366f1", borderRadius: 8, padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: "#aaa", fontSize: 10 }}>🚀 매도</div>
-                        <div style={{ color: "#6366f1", fontWeight: "bold", fontSize: 13 }}>{fmtPrice(analysisRec.sell, analysisRec.currency)}</div>
-                      </div>
-                      <div style={{ background: "#2d0d0d", border: "1px solid #ef4444", borderRadius: 8, padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: "#aaa", fontSize: 10 }}>💀 손절</div>
-                        <div style={{ color: "#ef4444", fontWeight: "bold", fontSize: 13 }}>{fmtPrice(analysisRec.stop_loss, analysisRec.currency)}</div>
-                      </div>
+                      {[
+                        { label: "🔍 1차 (20%)", value: analysisRec.buy1, color: "#22c55e", bg: "#0d2d0d", border: "#22c55e" },
+                        { label: "⚔️ 2차 (30%)", value: analysisRec.buy2, color: "#84cc16", bg: "#1a2d0d", border: "#84cc16" },
+                        { label: "🏴 3차 (50%)", value: analysisRec.buy3, color: "#f97316", bg: "#2d1a0d", border: "#f97316" },
+                        { label: "🚀 매도",      value: analysisRec.sell, color: "#6366f1", bg: "#0d0d2d", border: "#6366f1" },
+                        { label: "💀 손절",      value: analysisRec.stop_loss, color: "#ef4444", bg: "#2d0d0d", border: "#ef4444" },
+                      ].map(({ label, value, color, bg, border }) => (
+                        <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 8, padding: "8px", textAlign: "center" }}>
+                          <div style={{ color: "#aaa", fontSize: 10 }}>{label}</div>
+                          <div style={{ color, fontWeight: "bold", fontSize: 13 }}>{fmtPrice(value, analysisRec.currency)}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -350,8 +442,7 @@ function SmartMoneyPicks({ picks }) {
               return (
                 <motion.tr key={pick.ticker} onClick={() => handleRowClick(pick.ticker, pick.currency)}
                   whileHover={{ background: "rgba(255,255,255,0.03)" }}
-                  style={{ borderBottom: "1px solid #1a1a2e", cursor: "pointer", background: isSelected ? "rgba(59,130,246,0.1)" : "transparent" }}
-                >
+                  style={{ borderBottom: "1px solid #1a1a2e", cursor: "pointer", background: isSelected ? "rgba(59,130,246,0.1)" : "transparent" }}>
                   <td style={{ padding: "10px 12px", color: "#555" }}>{i + 1}</td>
                   <td style={{ padding: "10px 12px", color: "#ffd700", fontWeight: "bold" }}>{pick.ticker}</td>
                   <td style={{ padding: "10px 12px", color: "#fff" }}>{pick.name}</td>
@@ -384,9 +475,7 @@ function MacroReport({ report }) {
         onClick={() => setExpanded(!expanded)}>
         <div style={{ fontSize: 16, fontWeight: "bold", color: "#a78bfa" }}>🌐 글로벌 매크로 시장 분석 및 투자 전략</div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ background: "#2d1a4d", color: "#a78bfa", fontSize: 11, padding: "3px 10px", borderRadius: 4, fontWeight: "bold" }}>
-            {report.market_phase}
-          </span>
+          <span style={{ background: "#2d1a4d", color: "#a78bfa", fontSize: 11, padding: "3px 10px", borderRadius: 4, fontWeight: "bold" }}>{report.market_phase}</span>
           <span style={{ color: "#555", fontSize: 12 }}>{expanded ? "▲ 접기" : "▼ 펼치기"}</span>
         </div>
       </div>
@@ -407,23 +496,17 @@ function MacroReport({ report }) {
               <div>
                 <div style={{ color: "#22c55e", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>3. 🎯 기회 알림</div>
                 {report.opportunities?.map((opp, i) => (
-                  <div key={i} style={{ background: "#0d2d0d", border: "1px solid #22c55e33", borderRadius: 8, padding: "10px 14px", marginBottom: 8, color: "#86efac", fontSize: 13, lineHeight: 1.5 }}>
-                    ✅ {opp}
-                  </div>
+                  <div key={i} style={{ background: "#0d2d0d", border: "1px solid #22c55e33", borderRadius: 8, padding: "10px 14px", marginBottom: 8, color: "#86efac", fontSize: 13, lineHeight: 1.5 }}>✅ {opp}</div>
                 ))}
               </div>
               <div>
                 <div style={{ color: "#ef4444", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>4. ⚠️ 경고 알림</div>
                 {report.risks?.map((risk, i) => (
-                  <div key={i} style={{ background: "#2d0d0d", border: "1px solid #ef444433", borderRadius: 8, padding: "10px 14px", marginBottom: 8, color: "#fca5a5", fontSize: 13, lineHeight: 1.5 }}>
-                    ⚠️ {risk}
-                  </div>
+                  <div key={i} style={{ background: "#2d0d0d", border: "1px solid #ef444433", borderRadius: 8, padding: "10px 14px", marginBottom: 8, color: "#fca5a5", fontSize: 13, lineHeight: 1.5 }}>⚠️ {risk}</div>
                 ))}
               </div>
             </div>
-            <div style={{ fontSize: 11, color: "#333", marginTop: 12 }}>
-              * VIX {report.vix?.toFixed(1)} | CNN 공포지수 {report.fear_greed} | 자동 생성됨
-            </div>
+            <div style={{ fontSize: 11, color: "#333", marginTop: 12 }}>* VIX {report.vix?.toFixed(1)} | CNN 공포지수 {report.fear_greed} | 자동 생성됨</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -432,6 +515,7 @@ function MacroReport({ report }) {
 }
 
 function SearchResultCard({ result, onClose, isEmergency }) {
+  const [activeTimeframe, setActiveTimeframe] = useState("5m")
   if (!result) return null
   const isUp = result.change_pct >= 0
   return (
@@ -456,15 +540,16 @@ function SearchResultCard({ result, onClose, isEmergency }) {
           </button>
         </div>
       </div>
-      <CandleChart ticker={result.ticker} />
-      <SniperBox ticker={result.ticker} currency={result.currency} cachedRec={result.recommendation} isGlobalEmergency={isEmergency} />
+      <CandleChart ticker={result.ticker} onTimeframeChange={setActiveTimeframe} livePrice={result.price} />
+      <SniperBox ticker={result.ticker} currency={result.currency} cachedRec={result.recommendation} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
     </motion.div>
   )
 }
 
 function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
-  const [flash, setFlash] = useState(null)
-  const [expanded, setExpanded] = useState(false)
+  const [flash, setFlash]                     = useState(null)
+  const [expanded, setExpanded]               = useState(false)
+  const [activeTimeframe, setActiveTimeframe] = useState("5m")
 
   useEffect(() => {
     if (!prevPrice || prevPrice === stock.price) return
@@ -515,12 +600,13 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
           </div>
         </div>
       </div>
+
       <AnimatePresence>
         {expanded && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
             onClick={e => e.stopPropagation()}>
-            <CandleChart ticker={stock.ticker} />
-            <SniperBox ticker={stock.ticker} currency={stock.currency} cachedRec={cachedRec} isGlobalEmergency={isEmergency} />
+            <CandleChart ticker={stock.ticker} onTimeframeChange={setActiveTimeframe} livePrice={stock.price} />
+            <SniperBox ticker={stock.ticker} currency={stock.currency} cachedRec={cachedRec} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -529,25 +615,25 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency }) {
 }
 
 export default function App() {
-  const [krStocks, setKrStocks] = useState([])
-  const [usStocks, setUsStocks] = useState([])
-  const [macro, setMacro] = useState({})
-  const [news, setNews] = useState(["시장 데이터 수집 중..."])
-  const [fearGreed, setFearGreed] = useState(50)
-  const [marketStatus, setMarketStatus] = useState("정규")
-  const [tab, setTab] = useState("kr")
-  const [lastUpdated, setLastUpdated] = useState(null)
+  const [krStocks, setKrStocks]             = useState([])
+  const [usStocks, setUsStocks]             = useState([])
+  const [macro, setMacro]                   = useState({})
+  const [news, setNews]                     = useState(["시장 데이터 수집 중..."])
+  const [fearGreed, setFearGreed]           = useState(50)
+  const [marketStatus, setMarketStatus]     = useState("정규")
+  const [tab, setTab]                       = useState("kr")
+  const [lastUpdated, setLastUpdated]       = useState(null)
   const [recommendations, setRecommendations] = useState({})
-  const [isEmergency, setIsEmergency] = useState(false)
+  const [isEmergency, setIsEmergency]       = useState(false)
   const [emergencyReason, setEmergencyReason] = useState(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [searchResult, setSearchResult] = useState(null)
-  const [searchLoading, setSearchLoading] = useState(false)
-  const [smartPicks, setSmartPicks] = useState([])
-  const [macroReport, setMacroReport] = useState({})
+  const [searchQuery, setSearchQuery]       = useState("")
+  const [searchResult, setSearchResult]     = useState(null)
+  const [searchLoading, setSearchLoading]   = useState(false)
+  const [smartPicks, setSmartPicks]         = useState([])
+  const [macroReport, setMacroReport]       = useState({})
   const prevKr = useRef({})
   const prevUs = useRef({})
-  const ws = useRef(null)
+  const ws     = useRef(null)
   const isExtremeFear = fearGreed >= 70
 
   const handleSearch = async () => {
@@ -555,7 +641,7 @@ export default function App() {
     setSearchLoading(true)
     setSearchResult(null)
     try {
-      const res = await fetch(`${API_BASE}/api/search/${searchQuery.trim()}`)
+      const res  = await fetch(`${API_BASE}/api/search/${searchQuery.trim()}`)
       const data = await res.json()
       if (data.error) alert(`검색 실패: ${data.error}`)
       else setSearchResult(data)
