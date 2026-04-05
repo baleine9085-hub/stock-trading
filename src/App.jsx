@@ -19,6 +19,25 @@ const COMPARE_OPTIONS = [
   { label: "VIX",            ticker: "^VIX",  color: "#f97316" },
 ]
 
+// 감성 점수 → 3단계 색상
+function getSentimentColor(score) {
+  if (score <= 30) return "#dc2626"       // 극단적 공포 — 진한 빨강
+  if (score <= 60) return "#facc15"       // 관망 — 노랑
+  return "#22c55e"                        // 극단적 탐욕 — 진한 초록
+}
+function getSentimentBg(score) {
+  if (score <= 30) return "#1a0000"
+  if (score <= 60) return "#1a1a00"
+  return "#001a00"
+}
+function getSentimentLabel(score) {
+  if (score <= 30) return "극단적 공포 🚨"
+  if (score <= 40) return "강한 부정 📉"
+  if (score <= 60) return "관망 ⚠️"
+  if (score <= 70) return "긍정 📈"
+  return "극단적 탐욕 🤑"
+}
+
 function MarketBadge({ status }) {
   const config = {
     "정규":        { color: "#22c55e", bg: "#0d2d0d",  label: "정규"   },
@@ -78,89 +97,137 @@ function MacroCard({ data }) {
   )
 }
 
-// ── 🧠 AI 뉴스 감성 계기판 ────────────────────────────────────
+// ── 🧠 AI 뉴스 감성 계기판 (강화판) ─────────────────────────
 function NewsSentimentGauge({ sentiment }) {
   if (!sentiment || sentiment.score === undefined) return null
-  const { score, pos_ratio = 50, neg_ratio = 50, label, color, is_danger, pos_keywords = [], neg_keywords = [] } = sentiment
 
-  // 반원 게이지 바늘 각도 (0=왼쪽 부정, 180=오른쪽 긍정)
+  const {
+    score, pos_ratio = 50, neg_ratio = 50,
+    pos_keywords = [], neg_keywords = [],
+    is_danger = false, decisive_reason = "",
+    reddit_score, vix_penalty = 0, alert_level = "caution",
+  } = sentiment
+
+  const color   = getSentimentColor(score)
+  const bgColor = getSentimentBg(score)
+  const label   = getSentimentLabel(score)
+
+  // 반원 바늘 계산
   const angleDeg = (score / 100) * 180
   const angleRad = (angleDeg - 90) * (Math.PI / 180)
-  const needleX  = 60 + 32 * Math.cos(angleRad)
-  const needleY  = 58 + 32 * Math.sin(angleRad)
+  const needleX  = 60 + 36 * Math.cos(angleRad)
+  const needleY  = 62 + 36 * Math.sin(angleRad)
+
+  const isDanger  = score <= 30 || is_danger
+  const isBull    = score >= 70
 
   return (
     <motion.div
-      animate={is_danger ? { boxShadow: ["0 0 0px #ff000000", "0 0 18px #ff0000aa", "0 0 0px #ff000000"] } : {}}
-      transition={is_danger ? { duration: 0.8, repeat: Infinity } : {}}
+      animate={isDanger
+        ? { boxShadow: ["0 0 0px #ff000000", "0 0 20px #ff0000bb", "0 0 0px #ff000000"] }
+        : isBull
+        ? { boxShadow: ["0 0 0px #22c55e00", "0 0 14px #22c55e66", "0 0 0px #22c55e00"] }
+        : {}}
+      transition={isDanger || isBull ? { duration: 0.9, repeat: Infinity } : {}}
       style={{
-        background: "#0a0a1a",
-        border: `1px solid ${is_danger ? "#ff0000" : color || "#2a2a3a"}`,
-        borderRadius: 10, padding: "10px 14px", marginTop: 10,
-        display: "flex", gap: 14, alignItems: "center",
+        background: bgColor,
+        border: `1px solid ${color}`,
+        borderRadius: 10, padding: "12px 14px", marginTop: 10,
       }}
     >
-      {/* SVG 게이지 */}
-      <svg width={120} height={68} viewBox="0 0 120 68" style={{ flexShrink: 0 }}>
-        {/* 배경 반원 */}
-        <path d="M 8 62 A 52 52 0 0 1 112 62" fill="none" stroke="#1a1a2e" strokeWidth={10} />
-        {/* 부정(빨강) 구간 */}
-        <path d="M 8 62 A 52 52 0 0 1 60 10" fill="none" stroke="#ff3b3b55" strokeWidth={10} />
-        {/* 긍정(초록) 구간 */}
-        <path d="M 60 10 A 52 52 0 0 1 112 62" fill="none" stroke="#22c55e55" strokeWidth={10} />
-        {/* 바늘 */}
-        <line x1={60} y1={62} x2={needleX} y2={needleY} stroke={color || "#fff"} strokeWidth={2.5} strokeLinecap="round" />
-        {/* 중심점 */}
-        <circle cx={60} cy={62} r={4} fill={color || "#fff"} />
-        {/* 점수 */}
-        <text x={60} y={52} textAnchor="middle" fill={color || "#fff"} fontSize={13} fontWeight="bold" fontFamily="monospace">{score}</text>
-        {/* 라벨 */}
-        <text x={14} y={68} fill="#ff3b3b" fontSize={8} fontFamily="monospace">부정</text>
-        <text x={90} y={68} fill="#22c55e" fontSize={8} fontFamily="monospace">긍정</text>
-      </svg>
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        {/* SVG 반원 게이지 */}
+        <svg width={124} height={72} viewBox="0 0 124 72" style={{ flexShrink: 0 }}>
+          {/* 배경 */}
+          <path d="M 8 66 A 56 56 0 0 1 116 66" fill="none" stroke="#1a1a2e" strokeWidth={12} />
+          {/* 공포(빨강) */}
+          <path d="M 8 66 A 56 56 0 0 1 62 10" fill="none" stroke="#dc262666" strokeWidth={12} />
+          {/* 관망(노랑) */}
+          <path d="M 50 12 A 56 56 0 0 1 74 12" fill="none" stroke="#facc1566" strokeWidth={12} />
+          {/* 탐욕(초록) */}
+          <path d="M 62 10 A 56 56 0 0 1 116 66" fill="none" stroke="#22c55e66" strokeWidth={12} />
+          {/* 바늘 */}
+          <line x1={62} y1={66} x2={needleX} y2={needleY} stroke={color} strokeWidth={3} strokeLinecap="round" />
+          <circle cx={62} cy={66} r={5} fill={color} />
+          {/* 점수 */}
+          <text x={62} y={54} textAnchor="middle" fill={color} fontSize={15} fontWeight="bold" fontFamily="monospace">{score}</text>
+          {/* 구간 라벨 */}
+          <text x={10} y={72} fill="#dc2626" fontSize={8} fontFamily="monospace">공포</text>
+          <text x={50} y={8}  fill="#facc15" fontSize={8} fontFamily="monospace">관망</text>
+          <text x={96} y={72} fill="#22c55e" fontSize={8} fontFamily="monospace">탐욕</text>
+        </svg>
 
-      {/* 상세 */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-          <div style={{ color: "#aaa", fontSize: 10 }}>🧠 AI 24H 뉴스 심리</div>
-          <div style={{ color, fontSize: 11, fontWeight: "bold" }}>{label}</div>
+        {/* 우측 상세 */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* 헤더 */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ color: "#aaa", fontSize: 10 }}>🧠 AI 24H 뉴스 심리</span>
+            <span style={{ color, fontSize: 11, fontWeight: "bold" }}>{label}</span>
+          </div>
+
+          {/* 비율 바 */}
+          <div style={{ display: "flex", borderRadius: 3, overflow: "hidden", height: 8, marginBottom: 4 }}>
+            <motion.div initial={{ width: 0 }} animate={{ width: `${pos_ratio}%` }} transition={{ duration: 1 }}
+              style={{ background: "#22c55e" }} />
+            <motion.div initial={{ width: 0 }} animate={{ width: `${neg_ratio}%` }} transition={{ duration: 1 }}
+              style={{ background: "#dc2626" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 6 }}>
+            <span style={{ color: "#22c55e" }}>긍정 {pos_ratio}%</span>
+            {reddit_score !== undefined && (
+              <span style={{ color: "#a78bfa", fontSize: 9 }}>WSB {reddit_score}</span>
+            )}
+            {vix_penalty < 0 && (
+              <span style={{ color: "#f97316", fontSize: 9 }}>VIX{vix_penalty}</span>
+            )}
+            <span style={{ color: "#dc2626" }}>부정 {neg_ratio}%</span>
+          </div>
+
+          {/* 결정적 근거 한 줄 */}
+          {decisive_reason && (
+            <div style={{
+              background: "#0d0d1a", border: `1px solid ${color}44`,
+              borderRadius: 5, padding: "5px 8px", marginBottom: 6,
+              fontSize: 10, color: color, lineHeight: 1.4,
+            }}>
+              💡 <span style={{ color: "#aaa" }}>결정적 근거: </span>{decisive_reason}
+            </div>
+          )}
+
+          {/* 키워드 태그 */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+            {pos_keywords.slice(0, 3).map(kw => (
+              <span key={kw} style={{ background: "#001a00", color: "#22c55e", fontSize: 9, padding: "1px 5px", borderRadius: 3, border: "1px solid #22c55e33" }}>↑ {kw}</span>
+            ))}
+            {neg_keywords.slice(0, 3).map(kw => (
+              <span key={kw} style={{ background: "#1a0000", color: "#ff6666", fontSize: 9, padding: "1px 5px", borderRadius: 3, border: "1px solid #ff3b3b33" }}>↓ {kw}</span>
+            ))}
+          </div>
+
+          {/* 경보 메시지 */}
+          {isDanger && (
+            <motion.div animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 0.7, repeat: Infinity }}
+              style={{ marginTop: 6, color: "#dc2626", fontSize: 10, fontWeight: "bold" }}>
+              🚨 극단적 공포 — 3차 지하벙커 타점 활성화
+            </motion.div>
+          )}
+          {isBull && !isDanger && (
+            <motion.div animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1.2, repeat: Infinity }}
+              style={{ marginTop: 6, color: "#22c55e", fontSize: 10, fontWeight: "bold" }}>
+              🤑 극단적 탐욕 — 추격 매수 주의, 눌림목 대기
+            </motion.div>
+          )}
         </div>
-        {/* 비율 바 */}
-        <div style={{ display: "flex", borderRadius: 3, overflow: "hidden", height: 7, marginBottom: 5 }}>
-          <motion.div initial={{ width: 0 }} animate={{ width: `${pos_ratio}%` }} transition={{ duration: 0.8 }}
-            style={{ background: "#22c55e" }} />
-          <motion.div initial={{ width: 0 }} animate={{ width: `${neg_ratio}%` }} transition={{ duration: 0.8 }}
-            style={{ background: "#ff3b3b" }} />
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 5 }}>
-          <span style={{ color: "#22c55e" }}>긍정 {pos_ratio}%</span>
-          <span style={{ color: "#ff3b3b" }}>부정 {neg_ratio}%</span>
-        </div>
-        {/* 키워드 태그 */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-          {pos_keywords.slice(0, 3).map(kw => (
-            <span key={kw} style={{ background: "#0d2d0d", color: "#22c55e", fontSize: 9, padding: "1px 5px", borderRadius: 3, border: "1px solid #22c55e33" }}>↑ {kw}</span>
-          ))}
-          {neg_keywords.slice(0, 3).map(kw => (
-            <span key={kw} style={{ background: "#2d0d0d", color: "#ff6666", fontSize: 9, padding: "1px 5px", borderRadius: 3, border: "1px solid #ff3b3b33" }}>↓ {kw}</span>
-          ))}
-        </div>
-        {is_danger && (
-          <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 0.6, repeat: Infinity }}
-            style={{ marginTop: 5, color: "#ff3b3b", fontSize: 9, fontWeight: "bold" }}>
-            ⚠️ 부정 뉴스 80% 초과 — 전략적 관망 권고
-          </motion.div>
-        )}
       </div>
     </motion.div>
   )
 }
 
-// ── 📊 섹터 수급 순위 미니 테이블 ────────────────────────────
+// ── 📊 섹터 수급 순위 ────────────────────────────────────────
 function SectorFlowTable({ sectorFlow }) {
   if (!sectorFlow || sectorFlow.length === 0) return null
   return (
-    <div style={{ background: "#13132a", border: "1px solid #222", borderRadius: 10, padding: "10px 14px", minWidth: 210, flexShrink: 0, alignSelf: "flex-start" }}>
+    <div style={{ background: "#13132a", border: "1px solid #222", borderRadius: 10, padding: "10px 14px", minWidth: 210, flexShrink: 0 }}>
       <div style={{ color: "#ffd700", fontSize: 11, fontWeight: "bold", marginBottom: 8 }}>📊 섹터 수급 순위</div>
       {sectorFlow.slice(0, 7).map((s, i) => {
         const isUp = s.avg_change >= 0
@@ -185,11 +252,11 @@ function SectorFlowTable({ sectorFlow }) {
   )
 }
 
-// ── 🕯️ 캔들 차트 + 비교선 오버레이 ──────────────────────────
+// ── 🕯️ 캔들 차트 + 비교선 ───────────────────────────────────
 function CandleChart({ ticker, onTimeframeChange, livePrice }) {
-  const containerRef    = useRef(null)
-  const chartRef        = useRef(null)
-  const seriesRef       = useRef(null)
+  const containerRef     = useRef(null)
+  const chartRef         = useRef(null)
+  const seriesRef        = useRef(null)
   const compareSeriesRef = useRef(null)
   const [activeIdx, setActiveIdx]   = useState(1)
   const [compareIdx, setCompareIdx] = useState(0)
@@ -197,7 +264,6 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
   const [error, setError]           = useState(null)
   const tf = TIMEFRAMES[activeIdx]
 
-  // 차트 초기화
   useEffect(() => {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, {
@@ -216,22 +282,17 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
     })
     chartRef.current  = chart
     seriesRef.current = series
-
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current)
         chartRef.current.applyOptions({ width: containerRef.current.clientWidth })
     })
     ro.observe(containerRef.current)
     return () => {
-      ro.disconnect()
-      chart.remove()
-      chartRef.current = null
-      seriesRef.current = null
-      compareSeriesRef.current = null
+      ro.disconnect(); chart.remove()
+      chartRef.current = null; seriesRef.current = null; compareSeriesRef.current = null
     }
   }, [])
 
-  // 메인 데이터 패치
   useEffect(() => {
     if (!seriesRef.current) return
     setLoading(true); setError(null)
@@ -252,19 +313,15 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
       .catch(() => { setError("로딩 실패"); setLoading(false) })
   }, [ticker, activeIdx])
 
-  // 비교선 오버레이
   useEffect(() => {
     if (!chartRef.current) return
-    // 기존 비교선 제거
     if (compareSeriesRef.current) {
       try { chartRef.current.removeSeries(compareSeriesRef.current) } catch {}
       compareSeriesRef.current = null
     }
     chartRef.current.priceScale("left").applyOptions({ visible: false })
-
     const opt = COMPARE_OPTIONS[compareIdx]
     if (!opt.ticker) return
-
     fetch(`${API_BASE}/api/chart/${encodeURIComponent(opt.ticker)}?interval=${tf.interval}&period=${tf.period}`)
       .then(r => r.json())
       .then(data => {
@@ -274,67 +331,52 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
           .map(d => ({ time: d.timestamp, value: d.close }))
           .filter(d => { if (!d.time || isNaN(d.time) || seen.has(d.time)) return false; seen.add(d.time); return true })
           .sort((a, b) => a.time - b.time)
-        if (pts.length === 0) return
+        if (!pts.length) return
         const base = pts[0].value
-        const normalized = pts.map(d => ({ time: d.time, value: parseFloat(((d.value / base - 1) * 100).toFixed(3)) }))
-
+        const norm = pts.map(d => ({ time: d.time, value: parseFloat(((d.value / base - 1) * 100).toFixed(3)) }))
         const line = chartRef.current.addSeries(LineSeries, {
           color: opt.color, lineWidth: 1.5,
-          priceScaleId: "left",
-          lastValueVisible: true,
-          priceLineVisible: false,
-          title: opt.label,
+          priceScaleId: "left", lastValueVisible: true,
+          priceLineVisible: false, title: opt.label,
         })
-        chartRef.current.priceScale("left").applyOptions({
-          visible: true, borderColor: "#2a2a3a",
-          scaleMargins: { top: 0.1, bottom: 0.1 },
-        })
-        line.setData(normalized)
+        chartRef.current.priceScale("left").applyOptions({ visible: true, borderColor: "#2a2a3a", scaleMargins: { top: 0.1, bottom: 0.1 } })
+        line.setData(norm)
         compareSeriesRef.current = line
-      })
-      .catch(() => {})
+      }).catch(() => {})
   }, [compareIdx, activeIdx, ticker])
 
   const handleTf = (e, idx) => {
-    e.stopPropagation()
-    setActiveIdx(idx)
+    e.stopPropagation(); setActiveIdx(idx)
     onTimeframeChange?.(TIMEFRAMES[idx].interval)
   }
 
   return (
     <div style={{ marginTop: 12 }}>
-      {/* 컨트롤 행 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        {/* 비교선 선택 */}
         <select onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); setCompareIdx(parseInt(e.target.value)) }} value={compareIdx}
           style={{ background: "#0d0d1a", color: "#a78bfa", border: "1px solid #2a2a3a", borderRadius: 4, padding: "3px 8px", fontSize: 11, cursor: "pointer", fontFamily: "monospace", outline: "none" }}>
           {COMPARE_OPTIONS.map((opt, i) => <option key={i} value={i}>{opt.label}</option>)}
         </select>
-        {/* 타임프레임 버튼 */}
         <div style={{ display: "flex", gap: 4 }}>
           {TIMEFRAMES.map((t, i) => {
             const isActive = i === activeIdx
             return (
               <button key={t.label} onClick={e => handleTf(e, i)} style={{
-                background: isActive ? "#6366f1" : "#0d0d1a",
-                color: isActive ? "#fff" : "#555",
+                background: isActive ? "#6366f1" : "#0d0d1a", color: isActive ? "#fff" : "#555",
                 border: `1px solid ${isActive ? "#6366f1" : "#2a2a3a"}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 11,
-                cursor: "pointer", fontFamily: "monospace",
-                fontWeight: isActive ? "bold" : "normal", transition: "all 0.15s",
-                boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
+                cursor: "pointer", fontFamily: "monospace", fontWeight: isActive ? "bold" : "normal",
+                transition: "all 0.15s", boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
               }}>{t.label}</button>
             )
           })}
         </div>
       </div>
-      {/* 비교선 안내 */}
       {compareIdx > 0 && (
         <div style={{ fontSize: 10, color: COMPARE_OPTIONS[compareIdx].color, marginBottom: 4, opacity: 0.8 }}>
           ── {COMPARE_OPTIONS[compareIdx].label} 비교선 (좌측 축: % 변화율)
         </div>
       )}
-      {/* 차트 */}
       <div style={{ position: "relative" }}>
         {loading && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -344,9 +386,7 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
           </motion.div>
         )}
         {error && !loading && (
-          <div style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "#ff3b3b", fontSize: 12 }}>
-            ⚠️ {error}
-          </div>
+          <div style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "#ff3b3b", fontSize: 12 }}>⚠️ {error}</div>
         )}
         <div ref={containerRef} style={{ width: "100%" }} />
       </div>
@@ -389,7 +429,6 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
   )
   if (!data || data.error) return null
   const isEmergency = data.is_emergency || isGlobalEmergency
-
   const buy1Highlight = isMinute ? { boxShadow: "0 0 14px rgba(34,197,94,0.55)", border: "1px solid #22c55e", transform: "scale(1.03)" } : {}
   const buy3Highlight = isDaily  ? { boxShadow: "0 0 14px rgba(249,115,22,0.6)",  border: "1px solid #f97316", transform: "scale(1.03)" } : {}
   const buy1Label = isMinute ? "🔍 1차 정찰대 ★단기" : isHourly ? "🔍 1차 정찰대 (중기)" : "🔍 1차 정찰대 (20%)"
@@ -475,8 +514,7 @@ function SmartMoneyPicks({ picks }) {
     try {
       const [aRes, rRes] = await Promise.all([fetch(`${API_BASE}/api/stock-analysis/${ticker}`), fetch(`${API_BASE}/api/recommend/${ticker}`)])
       const aData = await aRes.json(); const rData = await rRes.json()
-      setAnalysisText(aData.analysis || "분석 생성 실패")
-      setAnalysisRec({ ...rData, currency })
+      setAnalysisText(aData.analysis || "분석 생성 실패"); setAnalysisRec({ ...rData, currency })
     } catch { setAnalysisText("분석 생성 중 오류가 발생했습니다.") }
     setAnalysisLoading(false)
   }
@@ -486,12 +524,10 @@ function SmartMoneyPicks({ picks }) {
       ⚙️ Smart Money Picks 계산 중... (첫 로드 시 수분 소요)
     </div>
   )
-
   const fmtPrice = (v, currency) => {
     if (v === undefined || v === null || isNaN(Number(v))) return "-"
     return currency === "KRW" ? `₩${Number(v).toLocaleString()}` : `$${Number(v).toFixed(2)}`
   }
-
   return (
     <div style={{ background: "#13132a", borderRadius: 12, padding: 24, border: "1px solid #222", marginBottom: 24 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -593,7 +629,7 @@ function MacroReport({ report }) {
               <div style={{ color: "#ccc", fontSize: 14, lineHeight: 1.7, background: "#0d0d1a", borderRadius: 8, padding: 16 }}>{report.summary}</div>
             </div>
             <div style={{ marginBottom: 20 }}>
-              <div style={{ color: "#ffd700", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>2. 가장 유사한 과거 패턴 비교 — <span style={{ color: "#a78bfa" }}>{report.pattern}</span></div>
+              <div style={{ color: "#ffd700", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>2. 유사 과거 패턴 — <span style={{ color: "#a78bfa" }}>{report.pattern}</span></div>
               <div style={{ color: "#ccc", fontSize: 14, lineHeight: 1.7, background: "#0d0d1a", borderRadius: 8, padding: 16 }}>{report.pattern_desc}</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -727,8 +763,9 @@ export default function App() {
   const ws     = useRef(null)
 
   const isExtremeFear     = fearGreed >= 70
-  const isSentimentDanger = newsSentiment?.is_danger || false
-  const showDanger        = isExtremeFear || isEmergency || isSentimentDanger
+  const isSentimentDanger = newsSentiment?.is_danger || newsSentiment?.score <= 30
+  const isSentimentBull   = newsSentiment?.score >= 70
+  const showRedAlert      = isExtremeFear || isEmergency || isSentimentDanger
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
@@ -780,8 +817,8 @@ export default function App() {
   }, [])
 
   return (
-    <div style={{ background: showDanger ? "#0d0000" : "#0d0d1a", minHeight: "100vh", color: "#fff", fontFamily: "monospace", boxShadow: showDanger ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none", transition: "all 0.5s" }}>
-      {showDanger && (
+    <div style={{ background: showRedAlert ? "#0d0000" : "#0d0d1a", minHeight: "100vh", color: "#fff", fontFamily: "monospace", boxShadow: showRedAlert ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none", transition: "all 0.5s" }}>
+      {showRedAlert && (
         <motion.div animate={{ opacity: [0, 0.4, 0] }} transition={{ duration: 0.8, repeat: Infinity }}
           style={{ position: "fixed", inset: 0, border: "4px solid #ff0000", pointerEvents: "none", zIndex: 999 }} />
       )}
@@ -793,7 +830,7 @@ export default function App() {
         {isSentimentDanger && !isEmergency && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             style={{ background: "#1a0000", borderBottom: "1px solid #ff000044", padding: "6px 24px", color: "#ff6666", fontSize: 12, fontWeight: "bold", textAlign: "center" }}>
-            🧠 AI 뉴스 감성 경고: 부정 뉴스 {newsSentiment?.neg_ratio}% 감지 — 시장 심리 극도의 부정
+            🧠 AI 감성 경보: 부정 {newsSentiment?.neg_ratio}% — {newsSentiment?.decisive_reason}
           </motion.div>
         )}
       </AnimatePresence>
@@ -815,15 +852,20 @@ export default function App() {
           <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>
             국장: <MarketBadge status={marketStatus} />
             <span style={{ marginLeft: 8 }}>{lastUpdated ? `업데이트: ${lastUpdated}` : "연결 중..."}</span>
+            {newsSentiment?.score !== undefined && (
+              <span style={{ marginLeft: 12, color: getSentimentColor(newsSentiment.score), fontSize: 11 }}>
+                🧠 심리 {newsSentiment.score} ({getSentimentLabel(newsSentiment.score)})
+              </span>
+            )}
           </div>
         </div>
         <FearGreedMeter score={fearGreed} />
       </div>
 
-      {/* 매크로 카드 + 섹터 수급 */}
+      {/* 매크로 + 섹터 수급 */}
       <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-          <div style={{ display: "flex", gap: 10, flex: 1, minWidth: "max-content" }}>
+          <div style={{ display: "flex", gap: 10, flex: 1, flexWrap: "wrap" }}>
             {Object.entries(macro).map(([ticker, data]) => <MacroCard key={ticker} data={data} />)}
           </div>
           <SectorFlowTable sectorFlow={sectorFlow} />
@@ -854,7 +896,6 @@ export default function App() {
             <SearchResultCard result={searchResult} onClose={() => { setSearchResult(null); setSearchQuery("") }} isEmergency={isEmergency} newsSentiment={newsSentiment} />
           )}
         </AnimatePresence>
-
         {tab === "kr" && krStocks.map(stock => (
           <StockCard key={stock.ticker} stock={stock} prevPrice={prevKr.current[stock.ticker]} cachedRec={recommendations[stock.ticker]} isEmergency={isEmergency} newsSentiment={newsSentiment} />
         ))}
