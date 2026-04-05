@@ -226,28 +226,47 @@ function NewsSentimentGauge({ sentiment }) {
 // ── 📊 섹터 수급 순위 ────────────────────────────────────────
 function SectorFlowTable({ sectorFlow }) {
   if (!sectorFlow || sectorFlow.length === 0) return null
+
+  // 국장/미장 분리
+  const KR_SECTORS = ["반도체", "기술", "자동차", "에너지", "방산"]
+  const krFlow = sectorFlow.filter(s => s.stocks?.some(st => /^\d{6}$/.test(st.ticker)))
+  const usFlow = sectorFlow.filter(s => s.stocks?.some(st => !/^\d{6}$/.test(st.ticker)))
+
+  const Table = ({ data, title, flag }) => (
+    <div style={{ background: "#13132a", border: "1px solid #222", borderRadius: 10, padding: "10px 14px", minWidth: 200, flexShrink: 0 }}>
+      <div style={{ color: "#ffd700", fontSize: 11, fontWeight: "bold", marginBottom: 8 }}>
+        {flag} {title} 섹터 수급
+      </div>
+      {data.length === 0 ? (
+        <div style={{ color: "#444", fontSize: 11 }}>데이터 없음</div>
+      ) : (
+        data.slice(0, 6).map((s, i) => {
+          const isUp = s.avg_change >= 0
+          return (
+            <div key={s.sector} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: i < 5 ? "1px solid #1a1a2e" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ color: "#333", fontSize: 10, minWidth: 14 }}>{i + 1}</span>
+                <span style={{ color: "#ccc", fontSize: 11 }}>{s.sector}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ color: isUp ? "#22c55e" : "#ff3b3b", fontSize: 10, fontWeight: "bold" }}>
+                  {isUp ? "▲" : "▼"} {Math.abs(s.avg_change).toFixed(2)}%
+                </span>
+                <span style={{ background: isUp ? "#0d2d0d" : "#2d0d0d", color: isUp ? "#22c55e" : "#ff3b3b", fontSize: 9, padding: "1px 4px", borderRadius: 3 }}>
+                  {isUp ? "유입" : "유출"}
+                </span>
+              </div>
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+
   return (
-    <div style={{ background: "#13132a", border: "1px solid #222", borderRadius: 10, padding: "10px 14px", minWidth: 210, flexShrink: 0 }}>
-      <div style={{ color: "#ffd700", fontSize: 11, fontWeight: "bold", marginBottom: 8 }}>📊 섹터 수급 순위</div>
-      {sectorFlow.slice(0, 7).map((s, i) => {
-        const isUp = s.avg_change >= 0
-        return (
-          <div key={s.sector} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: i < 6 ? "1px solid #1a1a2e" : "none" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ color: "#333", fontSize: 10, minWidth: 14 }}>{i + 1}</span>
-              <span style={{ color: "#ccc", fontSize: 11 }}>{s.sector}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ color: isUp ? "#22c55e" : "#ff3b3b", fontSize: 10, fontWeight: "bold" }}>
-                {isUp ? "▲" : "▼"} {Math.abs(s.avg_change).toFixed(2)}%
-              </span>
-              <span style={{ background: isUp ? "#0d2d0d" : "#2d0d0d", color: isUp ? "#22c55e" : "#ff3b3b", fontSize: 9, padding: "1px 4px", borderRadius: 3 }}>
-                {isUp ? "유입" : "유출"}
-              </span>
-            </div>
-          </div>
-        )
-      })}
+    <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
+      <Table data={krFlow} title="국장" flag="🇰🇷" />
+      <Table data={usFlow} title="미장" flag="🇺🇸" />
     </div>
   )
 }
