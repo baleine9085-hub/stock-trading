@@ -551,23 +551,53 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
 }
 
 function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe = "5m" }) {
-  const [data, setData]       = useState(cachedRec || null)
-  const [loading, setLoading] = useState(!cachedRec)
+  const [selectedAI, setSelectedAI]   = useState("gemini")   // ★ AI 선택
+  const [geminiData, setGeminiData]   = useState(cachedRec || null)
+  const [gptData, setGptData]         = useState(null)
+  const [loading, setLoading]         = useState(!cachedRec)
+  const [gptLoading, setGptLoading]   = useState(false)
+  const [visible, setVisible]         = useState(true)        // ★ 페이드 효과
+
   const isMinute = timeframe === "1m" || timeframe === "5m"
   const isHourly = timeframe === "60m"
   const isDaily  = timeframe === "1d"
 
+  // Gemini 데이터 로딩
   useEffect(() => {
-    if (cachedRec) { setData(cachedRec); setLoading(false); return }
+    if (cachedRec) { setGeminiData(cachedRec); setLoading(false); return }
     setLoading(true)
     fetch(`${API_BASE}/api/recommend/${ticker}`)
-      .then(r => r.json()).then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
+      .then(r => r.json()).then(d => { setGeminiData(d); setLoading(false) })
+      .catch(() => setLoading(false))
   }, [ticker, cachedRec])
+
+  // GPT 데이터 로딩
+  useEffect(() => {
+    setGptLoading(true)
+    fetch(`${API_BASE}/api/recommend-tech/${ticker}`)
+      .then(r => r.json()).then(d => { setGptData(d); setGptLoading(false) })
+      .catch(() => setGptLoading(false))
+  }, [ticker])
+
+  // ★ AI 전환 시 페이드 효과
+  const switchAI = (model) => {
+    if (model === selectedAI) return
+    setVisible(false)
+    setTimeout(() => { setSelectedAI(model); setVisible(true) }, 200)
+  }
+
+  const data = selectedAI === "gemini" ? geminiData : gptData
+  const isGemini = selectedAI === "gemini"
 
   const fmt = (v) => {
     if (v === undefined || v === null || isNaN(Number(v))) return "-"
     return currency === "KRW" ? `₩${Number(v).toLocaleString()}` : `$${Number(v).toFixed(2)}`
   }
+
+  // ★ AI 합의 여부 (두 타점의 buy1 차이가 2% 이내)
+  const isConsensus = geminiData && gptData && !geminiData.error && !gptData.error &&
+    Math.abs((geminiData.buy1 - gptData.buy1) / geminiData.buy1) < 0.02
+
   const getTimestamp = () => {
     if (!data?.updated_at) return null
     const diff = Math.floor((Date.now() - new Date(data.updated_at).getTime()) / 60000)
@@ -580,11 +610,19 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
   if (loading) return (
     <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1.2, repeat: Infinity }}
       style={{ marginTop: 12, background: "#0d0d1a", border: "1px solid #333", borderRadius: 8, padding: "20px", textAlign: "center", color: "#555", fontSize: 15 }}>
-      ⚙️ 전략 수정 중...
+      ⚙️ 전략 수립 중...
     </motion.div>
   )
   if (!data || data.error) return null
+
   const isEmergency = data.is_emergency || isGlobalEmergency
+
+  // ★ 모델별 색상
+  const modelColor  = isGemini ? "#4285f4" : "#10a37f"
+  const modelGlow   = isGemini
+    ? "0 0 16px rgba(66,133,244,0.4)"
+    : "0 0 16px rgba(16,163,127,0.4)"
+
   const buy1Highlight = isMinute ? { boxShadow: "0 0 14px rgba(34,197,94,0.55)", border: "1px solid #22c55e", transform: "scale(1.03)" } : {}
   const buy3Highlight = isDaily  ? { boxShadow: "0 0 14px rgba(249,115,22,0.6)",  border: "1px solid #f97316", transform: "scale(1.03)" } : {}
   const buy1Label = isMinute ? "🔍 1차 정찰대 ★단기" : isHourly ? "🔍 1차 정찰대 (중기)" : "🔍 1차 정찰대 (20%)"
@@ -593,48 +631,138 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
 
   return (
     <div style={{ marginTop: 12 }}>
+      {/* ★ AI 모델 토글 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ color: "#555", fontSize: 11 }}>참모 선택:</span>
+
+        {/* Gemini 버튼 */}
+        <button onClick={() => switchAI("gemini")} style={{
+          background: isGemini ? "#0d1a2d" : "#0d0d1a",
+          color: isGemini ? "#4285f4" : "#555",
+          border: `1px solid ${isGemini ? "#4285f4" : "#2a2a3a"}`,
+          borderRadius: 6, padding: "4px 12px", fontSize: 12,
+          cursor: "pointer", fontFamily: "monospace", fontWeight: isGemini ? "bold" : "normal",
+          boxShadow: isGemini ? "0 0 10px rgba(66,133,244,0.4)" : "none",
+          transition: "all 0.2s",
+        }}>
+          🔵 Gemini
+        </button>
+
+        {/* GPT 버튼 */}
+        <button onClick={() => switchAI("gpt")} style={{
+          background: !isGemini ? "#0d1a14" : "#0d0d1a",
+          color: !isGemini ? "#10a37f" : "#555",
+          border: `1px solid ${!isGemini ? "#10a37f" : "#2a2a3a"}`,
+          borderRadius: 6, padding: "4px 12px", fontSize: 12,
+          cursor: "pointer", fontFamily: "monospace", fontWeight: !isGemini ? "bold" : "normal",
+          boxShadow: !isGemini ? "0 0 10px rgba(16,163,127,0.4)" : "none",
+          transition: "all 0.2s",
+        }}>
+          🟢 GPT-4o
+        </button>
+
+        {/* ★ AI 합의 배지 */}
+        {isConsensus && (
+          <motion.span
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            style={{ background: "#1a1a0d", color: "#ffd700", border: "1px solid #ffd70066", fontSize: 10, padding: "2px 8px", borderRadius: 10, fontWeight: "bold" }}>
+            ✨ AI 합의 완료
+          </motion.span>
+        )}
+
+        {/* GPT 로딩 중 */}
+        {gptLoading && (
+          <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1, repeat: Infinity }}
+            style={{ color: "#555", fontSize: 10 }}>⚙️ GPT 분석 중...</motion.span>
+        )}
+
+        {/* 현재 모델 라벨 */}
+        <span style={{ marginLeft: "auto", color: modelColor, fontSize: 10, opacity: 0.7 }}>
+          {isGemini ? "시황 중심" : "기술적 지표 중심"}
+        </span>
+      </div>
+
       {tfHint && <div style={{ fontSize: 12, color: "#6366f1", marginBottom: 6, textAlign: "right", opacity: 0.8 }}>📐 {tfHint}</div>}
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-        style={{ background: isEmergency ? "#1a0000" : data.is_bad_news ? "#1a0505" : "#05101a", border: `1px solid ${isEmergency ? "#ff0000" : data.is_bad_news ? "#ff3b3b" : "#3b82f6"}`, borderRadius: 8, padding: "12px 16px", marginBottom: 10, fontSize: 16, color: isEmergency ? "#ff6666" : data.is_bad_news ? "#ff9999" : "#93c5fd" }}>
-        🎯 {data.scenario}
-        {data.is_bad_news && data.discount_pct > 0 && (
-          <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>[{data.discount_pct}% 벙커 하향 적용됨]</span>
+
+      {/* ★ 페이드 인/아웃 래퍼 */}
+      <motion.div
+        animate={{ opacity: visible ? 1 : 0 }}
+        transition={{ duration: 0.2 }}
+        style={{
+          border: `1px solid ${isEmergency ? "#ff0000" : `${modelColor}44`}`,
+          borderRadius: 10,
+          boxShadow: isEmergency ? "0 0 20px rgba(255,0,0,0.3)" : modelGlow,
+          padding: "10px",
+          transition: "box-shadow 0.3s, border 0.3s",
+        }}>
+
+        {/* 시나리오 */}
+        <div style={{ background: isEmergency ? "#1a0000" : data.is_bad_news ? "#1a0505" : "#05101a", border: `1px solid ${isEmergency ? "#ff0000" : data.is_bad_news ? "#ff3b3b" : `${modelColor}66`}`, borderRadius: 8, padding: "12px 16px", marginBottom: 10, fontSize: 15, color: isEmergency ? "#ff6666" : data.is_bad_news ? "#ff9999" : "#93c5fd" }}>
+          🎯 {data.scenario}
+          {data.is_bad_news && data.discount_pct > 0 && (
+            <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>[{data.discount_pct}% 벙커 하향 적용됨]</span>
+          )}
+        </div>
+
+        {/* GPT 기술적 지표 표시 */}
+        {!isGemini && data.indicators && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+            {[
+              { label: "RSI", value: data.indicators.rsi },
+              { label: "MA20", value: data.indicators.ma20?.toLocaleString() },
+              { label: "MA60", value: data.indicators.ma60?.toLocaleString() },
+              { label: "BB상단", value: data.indicators.bb_upper?.toLocaleString() },
+              { label: "BB하단", value: data.indicators.bb_lower?.toLocaleString() },
+            ].map(({ label, value }) => (
+              <span key={label} style={{ background: "#0d1a14", border: "1px solid #10a37f33", color: "#10a37f", fontSize: 10, padding: "2px 6px", borderRadius: 4 }}>
+                {label}: {value}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* 타점 박스 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+          <div style={{ background: "#0d2d0d", borderRadius: 8, padding: "10px 14px", textAlign: "center", transition: "all 0.3s", ...buy1Highlight, border: buy1Highlight.border || `1px solid #22c55e` }}>
+            <div style={{ color: "#aaa", fontSize: 12 }}>{buy1Label}</div>
+            <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy1)}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -3%~" : "MA/볼밴 지지"}</div>
+            {isMinute && <div style={{ color: "#22c55e", fontSize: 11, marginTop: 2 }}>▶ 분봉 주목</div>}
+          </div>
+          <div style={{ background: "#1a2d0d", border: "1px solid #84cc16", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
+            <div style={{ color: "#aaa", fontSize: 12 }}>⚔️ 2차 본대 (30%)</div>
+            <div style={{ color: "#84cc16", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy2)}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -7%~" : "MA60 지지"}</div>
+          </div>
+          <div style={{ background: "#2d1a0d", borderRadius: 8, padding: "10px 14px", textAlign: "center", transition: "all 0.3s", ...buy3Highlight, border: buy3Highlight.border || "1px solid #f97316" }}>
+            <div style={{ color: "#aaa", fontSize: 12 }}>{buy3Label}</div>
+            <div style={{ color: "#f97316", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy3)}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -12%~" : "60일 저점"}</div>
+            {isDaily && <div style={{ color: "#f97316", fontSize: 11, marginTop: 2 }}>▶ 일봉 주목</div>}
+          </div>
+        </div>
+
+        {/* 매도/손절 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+          <div style={{ background: "#0d0d2d", border: `1px solid ${modelColor}88`, borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
+            <div style={{ color: "#aaa", fontSize: 12 }}>🚀 매도 목표가</div>
+            <div style={{ color: modelColor, fontWeight: "bold", fontSize: 18 }}>{fmt(data.sell)}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "+8%" : "볼밴 상단"}</div>
+          </div>
+          <div style={{ background: "#2d0d0d", border: "1px solid #ef4444", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
+            <div style={{ color: "#aaa", fontSize: 12 }}>💀 손절가</div>
+            <div style={{ color: "#ef4444", fontWeight: "bold", fontSize: 18 }}>{fmt(data.stop_loss)}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "-15%" : "볼밴 하단-3%"}</div>
+          </div>
+        </div>
+
+        {getTimestamp() && (
+          <div style={{ marginTop: 6, textAlign: "right", fontSize: 11, color: data.is_emergency ? "#ff3b3b" : modelColor, opacity: 0.6 }}>
+            {isGemini ? "🔵 Gemini" : "🟢 GPT-4o"} · {getTimestamp()}
+          </div>
         )}
       </motion.div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-        <div style={{ background: "#0d2d0d", borderRadius: 8, padding: "10px 14px", textAlign: "center", transition: "all 0.3s", ...buy1Highlight, border: buy1Highlight.border || "1px solid #22c55e" }}>
-          <div style={{ color: "#aaa", fontSize: 12 }}>{buy1Label}</div>
-          <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy1)}</div>
-          <div style={{ color: "#666", fontSize: 12 }}>현재가 -3%~</div>
-          {isMinute && <div style={{ color: "#22c55e", fontSize: 11, marginTop: 2 }}>▶ 분봉 주목</div>}
-        </div>
-        <div style={{ background: "#1a2d0d", border: "1px solid #84cc16", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 12 }}>⚔️ 2차 본대 (30%)</div>
-          <div style={{ color: "#84cc16", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy2)}</div>
-          <div style={{ color: "#666", fontSize: 12 }}>현재가 -7%~</div>
-        </div>
-        <div style={{ background: "#2d1a0d", borderRadius: 8, padding: "10px 14px", textAlign: "center", transition: "all 0.3s", ...buy3Highlight, border: buy3Highlight.border || "1px solid #f97316" }}>
-          <div style={{ color: "#aaa", fontSize: 12 }}>{buy3Label}</div>
-          <div style={{ color: "#f97316", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy3)}</div>
-          <div style={{ color: "#666", fontSize: 12 }}>현재가 -12%~</div>
-          {isDaily && <div style={{ color: "#f97316", fontSize: 11, marginTop: 2 }}>▶ 일봉 주목</div>}
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-        <div style={{ background: "#0d0d2d", border: "1px solid #6366f1", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 12 }}>🚀 매도 목표가</div>
-          <div style={{ color: "#6366f1", fontWeight: "bold", fontSize: 18 }}>{fmt(data.sell)}</div>
-          <div style={{ color: "#666", fontSize: 12 }}>+8%</div>
-        </div>
-        <div style={{ background: "#2d0d0d", border: "1px solid #ef4444", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
-          <div style={{ color: "#aaa", fontSize: 12 }}>💀 손절가</div>
-          <div style={{ color: "#ef4444", fontWeight: "bold", fontSize: 18 }}>{fmt(data.stop_loss)}</div>
-          <div style={{ color: "#666", fontSize: 12 }}>-15%</div>
-        </div>
-      </div>
-      {getTimestamp() && (
-        <div style={{ marginTop: 6, textAlign: "right", fontSize: 12, color: data.is_emergency ? "#ff3b3b" : "#555" }}>{getTimestamp()}</div>
-      )}
     </div>
   )
 }
