@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createChart, CandlestickSeries, LineSeries } from "lightweight-charts"
 
 const API_BASE = "https://stock-dashboard-production-19d7.up.railway.app"
+const KST_OFFSET = 9 * 3600  // 프론트에서만 KST 변환
 
 const TIMEFRAMES = [
   { label: "1분",   interval: "1m",  period: "1d"  },
@@ -37,19 +38,19 @@ function getSentimentLabel(score) {
   return "극단적 탐욕 🤑"
 }
 
-// ── 마켓 배지 — 호가접수 추가 ────────────────────────────────
+// ── 마켓 배지 ─────────────────────────────────────────────────
 function MarketBadge({ status }) {
   const config = {
-    "정규":        { color: "#22c55e", bg: "#0d2d0d",  label: "정규"   },
-    "호가접수":    { color: "#00e5ff", bg: "#002d33",  label: "호가접수" }, // ★ 신규
-    "장전시간외":  { color: "#facc15", bg: "#2d2a0d",  label: "장전"   },
-    "장후시간외":  { color: "#f97316", bg: "#2d1a0d",  label: "장후"   },
-    "시간외단일가":{ color: "#ff3b3b", bg: "#2d0d0d",  label: "단일가" },
-    "장마감":      { color: "#aaa",    bg: "#1a1a2e",  label: "마감"   },
-    "휴장":        { color: "#555",    bg: "#111",     label: "휴장"   },
-    "장외":        { color: "#555",    bg: "#111",     label: "장외"   },
-    "프리마켓":    { color: "#a78bfa", bg: "#1a0d2d",  label: "프리"   },
-    "애프터마켓":  { color: "#f472b6", bg: "#2d0d1a",  label: "애프터" },
+    "정규":        { color: "#22c55e", bg: "#0d2d0d",  label: "정규"    },
+    "호가접수":    { color: "#00e5ff", bg: "#002d33",  label: "호가접수" },
+    "장전시간외":  { color: "#facc15", bg: "#2d2a0d",  label: "장전"    },
+    "장후시간외":  { color: "#f97316", bg: "#2d1a0d",  label: "장후"    },
+    "시간외단일가":{ color: "#ff3b3b", bg: "#2d0d0d",  label: "단일가"  },
+    "장마감":      { color: "#aaa",    bg: "#1a1a2e",  label: "마감"    },
+    "휴장":        { color: "#555",    bg: "#111",     label: "휴장"    },
+    "장외":        { color: "#555",    bg: "#111",     label: "장외"    },
+    "프리마켓":    { color: "#a78bfa", bg: "#1a0d2d",  label: "프리"    },
+    "애프터마켓":  { color: "#f472b6", bg: "#2d0d1a",  label: "애프터"  },
   }
   const c = config[status] || config["휴장"]
   return (
@@ -214,38 +215,41 @@ function SectorFlowTable({ sectorFlow }) {
   )
 }
 
-// ── 🕯️ 캔들차트 — KST 타임존 + 비교선 ──────────────────────
-function CandleChart({ ticker, onTimeframeChange }) {
+// ── 🕯️ CandleChart — 완전 개편 ───────────────────────────────
+function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice }) {
   const containerRef     = useRef(null)
   const chartRef         = useRef(null)
   const seriesRef        = useRef(null)
   const compareSeriesRef = useRef(null)
+  const lastTsRef        = useRef(0)       // ★ 최신성 검증용
   const [activeIdx, setActiveIdx]   = useState(1)
   const [compareIdx, setCompareIdx] = useState(0)
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState(null)
+  const [syncing, setSyncing]       = useState(false)
   const tf = TIMEFRAMES[activeIdx]
 
+  // ── 차트 초기화 ──────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, {
       width:  containerRef.current.clientWidth,
-      height: 220,
+      height: 230,
       layout: { background: { color: "#0d0d1a" }, textColor: "#bbb" },
       grid:   { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
       timeScale: {
-        timeVisible:    true,
+        timeVisible: true,
         secondsVisible: false,
-        // ★ KST(UTC+9) 로컬 표시 — lightweight-charts는 unix timestamp를 그대로 UTC로 표시하므로
-        //   api.py에서 이미 +9h 보정한 timestamp를 받아서 사용
-        tickMarkFormatter: (time) => {
-          const d = new Date(time * 1000)
-          const h = String(d.getUTCHours()).padStart(2, "0")
-          const m = String(d.getUTCMinutes()).padStart(2, "0")
-          const mo = String(d.getUTCMonth() + 1).padStart(2, "0")
-          const day = String(d.getUTCDate()).padStart(2, "0")
-          // 분봉: HH:mm / 일봉: MM/DD
-          return h === "00" && m === "00" ? `${mo}/${day}` : `${h}:${m}`
+        rightOffset: 5,           // ★ 우측 여백 자동 확장
+        barSpacing: 6,
+        // ★ X축: 브라우저 로컬 시간으로 표시
+        tickMarkFormatter: (utcTs) => {
+          const d = new Date(utcTs * 1000)
+          const h   = String(d.getHours()).padStart(2, "0")
+          const m   = String(d.getMinutes()).padStart(2, "0")
+          const mo  = String(d.getMonth() + 1).padStart(2, "0")
+          const day = String(d.getDate()).padStart(2, "0")
+          return (h === "00" && m === "00") ? `${mo}/${day}` : `${h}:${m}`
         },
       },
       rightPriceScale: { borderColor: "#1a1a2e" },
@@ -259,6 +263,8 @@ function CandleChart({ ticker, onTimeframeChange }) {
     })
     chartRef.current  = chart
     seriesRef.current = series
+    lastTsRef.current = 0
+
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current)
         chartRef.current.applyOptions({ width: containerRef.current.clientWidth })
@@ -270,20 +276,34 @@ function CandleChart({ ticker, onTimeframeChange }) {
     }
   }, [])
 
-  // 메인 캔들 데이터
-  useEffect(() => {
+  // ── 데이터 로딩 함수 ─────────────────────────────────────────
+  const loadData = useCallback(() => {
     if (!seriesRef.current) return
     setLoading(true); setError(null)
+
     fetch(`${API_BASE}/api/chart/${ticker}?interval=${tf.interval}&period=${tf.period}`)
       .then(r => r.json())
-      .then(data => {
+      .then(raw => {
         if (!seriesRef.current) return
-        if (!Array.isArray(data)) { setError("데이터 없음"); setLoading(false); return }
+        if (!Array.isArray(raw)) { setError("데이터 없음"); setLoading(false); return }
+
         const seen = new Set()
-        const formatted = data
-          .map(d => ({ time: d.timestamp, open: d.open, high: d.high, low: d.low, close: d.close }))
-          .filter(d => { if (!d.time || isNaN(d.time) || seen.has(d.time)) return false; seen.add(d.time); return true })
+        // ★ 타임스탬프를 브라우저 로컬 기준으로 변환
+        const formatted = raw
+          .map(d => {
+            // UTC unix → 로컬 Date → 다시 unix (로컬 기준 정렬용)
+            const localTs = d.timestamp   // 서버가 UTC unix 반환
+            return { time: localTs, open: d.open, high: d.high, low: d.low, close: d.close }
+          })
+          .filter(d => {
+            if (!d.time || isNaN(d.time) || seen.has(d.time)) return false
+            seen.add(d.time); return true
+          })
           .sort((a, b) => a.time - b.time)
+
+        if (formatted.length > 0) {
+          lastTsRef.current = formatted[formatted.length - 1].time
+        }
         seriesRef.current.setData(formatted)
         chartRef.current?.timeScale().fitContent()
         setLoading(false)
@@ -291,7 +311,36 @@ function CandleChart({ ticker, onTimeframeChange }) {
       .catch(() => { setError("로딩 실패"); setLoading(false) })
   }, [ticker, activeIdx])
 
-  // 비교선 오버레이
+  useEffect(() => { loadData() }, [loadData])
+
+  // ── ★ 실시간 가격 → 차트 끝단 동기화 ──────────────────────
+  useEffect(() => {
+    if (!seriesRef.current || !livePrice || tf.interval === "1d") return
+
+    // 현재 시스템 시간 기준 타임스탬프 (1초 단위)
+    const nowTs = Math.floor(Date.now() / 1000)
+
+    // ★ 최신성 검증: 서버 데이터보다 과거면 무시
+    if (nowTs < lastTsRef.current - 60) return
+
+    // 현재 캔들 구간 시작 시각 계산
+    const intervalSec = tf.interval === "1m" ? 60 : tf.interval === "5m" ? 300 : tf.interval === "60m" ? 3600 : 86400
+    const candleTs = Math.floor(nowTs / intervalSec) * intervalSec
+
+    try {
+      seriesRef.current.update({
+        time:  candleTs,
+        open:  livePrice,
+        high:  livePrice,
+        low:   livePrice,
+        close: livePrice,
+      })
+      // 최신 타임스탬프 갱신
+      if (candleTs > lastTsRef.current) lastTsRef.current = candleTs
+    } catch {}
+  }, [livePrice])
+
+  // ── 비교선 ───────────────────────────────────────────────────
   useEffect(() => {
     if (!chartRef.current) return
     if (compareSeriesRef.current) {
@@ -301,6 +350,7 @@ function CandleChart({ ticker, onTimeframeChange }) {
     chartRef.current.priceScale("left").applyOptions({ visible: false })
     const opt = COMPARE_OPTIONS[compareIdx]
     if (!opt.ticker) return
+
     fetch(`${API_BASE}/api/chart/${encodeURIComponent(opt.ticker)}?interval=${tf.interval}&period=${tf.period}`)
       .then(r => r.json())
       .then(data => {
@@ -324,6 +374,15 @@ function CandleChart({ ticker, onTimeframeChange }) {
       }).catch(() => {})
   }, [compareIdx, activeIdx, ticker])
 
+  // ── 동기화 버튼 ─────────────────────────────────────────────
+  const handleSync = (e) => {
+    e.stopPropagation()
+    setSyncing(true)
+    lastTsRef.current = 0
+    loadData()
+    setTimeout(() => setSyncing(false), 1500)
+  }
+
   const handleTf = (e, idx) => {
     e.stopPropagation(); setActiveIdx(idx)
     onTimeframeChange?.(TIMEFRAMES[idx].interval)
@@ -331,11 +390,25 @@ function CandleChart({ ticker, onTimeframeChange }) {
 
   return (
     <div style={{ marginTop: 12 }}>
+      {/* 컨트롤 행 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <select onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); setCompareIdx(parseInt(e.target.value)) }} value={compareIdx}
-          style={{ background: "#0d0d1a", color: "#a78bfa", border: "1px solid #2a2a3a", borderRadius: 4, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontFamily: "monospace", outline: "none" }}>
-          {COMPARE_OPTIONS.map((opt, i) => <option key={i} value={i}>{opt.label}</option>)}
-        </select>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <select onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); setCompareIdx(parseInt(e.target.value)) }} value={compareIdx}
+            style={{ background: "#0d0d1a", color: "#a78bfa", border: "1px solid #2a2a3a", borderRadius: 4, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: "monospace", outline: "none" }}>
+            {COMPARE_OPTIONS.map((opt, i) => <option key={i} value={i}>{opt.label}</option>)}
+          </select>
+          {/* ★ 데이터 동기화 버튼 */}
+          <button onClick={handleSync} style={{
+            background: syncing ? "#1a2d0d" : "#0d0d1a",
+            color: syncing ? "#22c55e" : "#555",
+            border: `1px solid ${syncing ? "#22c55e" : "#2a2a3a"}`,
+            borderRadius: 4, padding: "4px 8px", fontSize: 11,
+            cursor: "pointer", fontFamily: "monospace", transition: "all 0.2s",
+          }}>
+            {syncing ? "⏳ 동기화 중..." : "🔄 동기화"}
+          </button>
+        </div>
+        {/* 타임프레임 버튼 */}
         <div style={{ display: "flex", gap: 4 }}>
           {TIMEFRAMES.map((t, i) => {
             const isActive = i === activeIdx
@@ -352,16 +425,16 @@ function CandleChart({ ticker, onTimeframeChange }) {
         </div>
       </div>
       {compareIdx > 0 && (
-        <div style={{ fontSize: 12, color: COMPARE_OPTIONS[compareIdx].color, marginBottom: 4, opacity: 0.8 }}>
+        <div style={{ fontSize: 11, color: COMPARE_OPTIONS[compareIdx].color, marginBottom: 4, opacity: 0.8 }}>
           ── {COMPARE_OPTIONS[compareIdx].label} 비교선 (좌측 축: % 변화율)
         </div>
       )}
       <div style={{ position: "relative" }}>
         {loading && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(13,13,26,0.80)", borderRadius: 4, color: "#555", fontSize: 13, gap: 6 }}>
+            style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(13,13,26,0.85)", borderRadius: 4, color: "#555", fontSize: 13, gap: 6 }}>
             <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} style={{ display: "inline-block" }}>⏳</motion.span>
-            {tf.label} 데이터 로딩 중...
+            {tf.label} 로딩 중...
           </motion.div>
         )}
         {error && !loading && (
@@ -637,6 +710,7 @@ function SearchResultCard({ result, onClose, isEmergency, newsSentiment }) {
   const [activeTimeframe, setActiveTimeframe] = useState("5m")
   if (!result) return null
   const isUp = result.change_pct >= 0
+  const isKR = /^\d{6}$/.test(result.ticker)
   return (
     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
       style={{ border: `1px solid ${isUp ? "#ff3b3b44" : "#3b82f644"}`, borderRadius: 12, padding: "16px 20px", background: "#1a1a2e", marginBottom: 12 }}>
@@ -653,7 +727,7 @@ function SearchResultCard({ result, onClose, isEmergency, newsSentiment }) {
           <button onClick={onClose} style={{ background: "none", border: "1px solid #555", color: "#aaa", borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontSize: 13 }}>✕ 닫기</button>
         </div>
       </div>
-      <CandleChart ticker={result.ticker} onTimeframeChange={setActiveTimeframe} />
+      <CandleChart ticker={result.ticker} isKR={isKR} onTimeframeChange={setActiveTimeframe} livePrice={result.price} />
       <NewsSentimentGauge sentiment={newsSentiment} />
       <SniperBox ticker={result.ticker} currency={result.currency} cachedRec={result.recommendation} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
     </motion.div>
@@ -664,6 +738,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency, newsSentiment }) 
   const [flash, setFlash]                     = useState(null)
   const [expanded, setExpanded]               = useState(false)
   const [activeTimeframe, setActiveTimeframe] = useState("5m")
+  const isKR = /^\d{6}$/.test(stock.ticker)
 
   useEffect(() => {
     if (!prevPrice || prevPrice === stock.price) return
@@ -708,7 +783,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency, newsSentiment }) 
         {expanded && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
             onClick={e => e.stopPropagation()}>
-            <CandleChart ticker={stock.ticker} onTimeframeChange={setActiveTimeframe} />
+            <CandleChart ticker={stock.ticker} isKR={isKR} onTimeframeChange={setActiveTimeframe} livePrice={stock.price} />
             <NewsSentimentGauge sentiment={newsSentiment} />
             <SniperBox ticker={stock.ticker} currency={stock.currency} cachedRec={cachedRec} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
           </motion.div>
@@ -718,7 +793,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency, newsSentiment }) 
   )
 }
 
-// ── 🚀 App 루트 — WebSocket 8시 헬스체크 포함 ────────────────
+// ── 🚀 App 루트 — WebSocket 헬스체크 + REST 폴링 폴백 ────────
 export default function App() {
   const [krStocks, setKrStocks]               = useState([])
   const [usStocks, setUsStocks]               = useState([])
@@ -738,15 +813,138 @@ export default function App() {
   const [macroReport, setMacroReport]         = useState({})
   const [newsSentiment, setNewsSentiment]     = useState({})
   const [sectorFlow, setSectorFlow]           = useState([])
-  const prevKr     = useRef({})
-  const prevUs     = useRef({})
-  const ws         = useRef(null)
-  const wsConnected = useRef(false)
-  const morningWakeRef = useRef(null)  // 오늘 날짜 추적
+  const [wsStatus, setWsStatus]               = useState("연결 중...")  // ★ WS 상태 표시
+
+  const prevKr         = useRef({})
+  const prevUs         = useRef({})
+  const ws             = useRef(null)
+  const lastMsgTime    = useRef(Date.now())
+  const morningWakeRef = useRef(null)
+  const pollingRef     = useRef(null)   // ★ REST 폴링 타이머
+  const healthRef      = useRef(null)   // ★ 헬스체크 타이머
 
   const isExtremeFear     = fearGreed >= 70
   const isSentimentDanger = newsSentiment?.is_danger || newsSentiment?.score <= 30
   const showRedAlert      = isExtremeFear || isEmergency || isSentimentDanger
+
+  // ── REST 폴링 (WS 연결 실패 시 폴백) ─────────────────────────
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return
+    console.log("📡 REST 폴링 모드 전환")
+    setWsStatus("REST 폴링")
+    pollingRef.current = setInterval(async () => {
+      try {
+        const [kr, us, macro, news, fg, ms, ns, sf] = await Promise.all([
+          fetch(`${API_BASE}/api/kr-stocks`).then(r => r.json()),
+          fetch(`${API_BASE}/api/us-stocks`).then(r => r.json()),
+          fetch(`${API_BASE}/api/macro`).then(r => r.json()),
+          fetch(`${API_BASE}/api/news`).then(r => r.json()),
+          fetch(`${API_BASE}/api/fear-greed`).then(r => r.json()),
+          fetch(`${API_BASE}/api/market-status`).then(r => r.json()),
+          fetch(`${API_BASE}/api/news-sentiment`).then(r => r.json()),
+          fetch(`${API_BASE}/api/sector-flow`).then(r => r.json()),
+        ])
+        setKrStocks(prev => { prev.forEach(s => { prevKr.current[s.ticker] = s.price }); return kr })
+        setUsStocks(prev => { prev.forEach(s => { prevUs.current[s.ticker] = s.price }); return us })
+        if (Object.keys(macro).length > 0) setMacro(macro)
+        if (news.length > 0) setNews(news)
+        setFearGreed(fg.score)
+        setMarketStatus(ms.status)
+        if (ns) setNewsSentiment(ns)
+        if (sf?.length > 0) setSectorFlow(sf)
+        setLastUpdated(new Date().toLocaleTimeString())
+      } catch (e) { console.error("폴링 오류:", e) }
+    }, 5000)
+  }, [])
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
+  }, [])
+
+  // ── WebSocket 연결 ────────────────────────────────────────────
+  const connect = useCallback(() => {
+    if (ws.current?.readyState === WebSocket.OPEN) return
+    ws.current = new WebSocket("wss://stock-dashboard-production-19d7.up.railway.app/ws/stocks")
+
+    ws.current.onopen = () => {
+      setWsStatus("🟢 실시간")
+      lastMsgTime.current = Date.now()
+      stopPolling()   // WS 연결 성공 → 폴링 중단
+      console.log("✅ WebSocket 연결됨")
+    }
+    ws.current.onmessage = (e) => {
+      lastMsgTime.current = Date.now()
+      const data = JSON.parse(e.data)
+      setKrStocks(prev => { prev.forEach(s => { prevKr.current[s.ticker] = s.price }); return data.kr })
+      setUsStocks(prev => { prev.forEach(s => { prevUs.current[s.ticker] = s.price }); return data.us })
+      if (data.macro && Object.keys(data.macro).length > 0) setMacro(data.macro)
+      if (data.news && data.news.length > 0) setNews(data.news)
+      if (data.fear_greed !== undefined) setFearGreed(data.fear_greed)
+      if (data.market_status) setMarketStatus(data.market_status)
+      if (data.recommendations) setRecommendations(data.recommendations)
+      if (data.is_emergency !== undefined) setIsEmergency(data.is_emergency)
+      if (data.emergency_reason !== undefined) setEmergencyReason(data.emergency_reason)
+      if (data.smart_picks?.length > 0) setSmartPicks(data.smart_picks)
+      if (data.macro_report?.summary) setMacroReport(data.macro_report)
+      if (data.news_sentiment) setNewsSentiment(data.news_sentiment)
+      if (data.sector_flow?.length > 0) setSectorFlow(data.sector_flow)
+      setLastUpdated(new Date().toLocaleTimeString())
+    }
+    ws.current.onclose = () => {
+      setWsStatus("🔴 재연결 중...")
+      console.log("WebSocket 끊김 → 3초 후 재연결")
+      setTimeout(connect, 3000)
+    }
+    ws.current.onerror = () => ws.current?.close()
+  }, [stopPolling])
+
+  // ── 초기 로딩 + 헬스체크 타이머 ─────────────────────────────
+  useEffect(() => {
+    // 초기 REST 데이터
+    Promise.all([
+      fetch(`${API_BASE}/api/kr-stocks`).then(r => r.json()).then(setKrStocks),
+      fetch(`${API_BASE}/api/us-stocks`).then(r => r.json()).then(setUsStocks),
+      fetch(`${API_BASE}/api/macro`).then(r => r.json()).then(setMacro),
+      fetch(`${API_BASE}/api/news`).then(r => r.json()).then(setNews),
+      fetch(`${API_BASE}/api/fear-greed`).then(r => r.json()).then(d => setFearGreed(d.score)),
+      fetch(`${API_BASE}/api/market-status`).then(r => r.json()).then(d => setMarketStatus(d.status)),
+      fetch(`${API_BASE}/api/smart-picks`).then(r => r.json()).then(setSmartPicks),
+      fetch(`${API_BASE}/api/macro-report`).then(r => r.json()).then(setMacroReport),
+      fetch(`${API_BASE}/api/news-sentiment`).then(r => r.json()).then(setNewsSentiment),
+      fetch(`${API_BASE}/api/sector-flow`).then(r => r.json()).then(setSectorFlow),
+    ]).catch(console.error)
+
+    connect()
+
+    // ★ 헬스체크: 10초 이상 메시지 없으면 폴링 전환 + 재연결
+    healthRef.current = setInterval(() => {
+      const gap = Date.now() - lastMsgTime.current
+
+      if (gap > 10000 && ws.current?.readyState !== WebSocket.CONNECTING) {
+        console.warn(`⚠️ WS ${Math.floor(gap/1000)}초 무응답 → 재연결 + 폴링 전환`)
+        startPolling()
+        if (ws.current) ws.current.close()
+      }
+
+      // 아침 8시 KST 강제 재연결
+      const now = new Date()
+      const kstH = (now.getUTCHours() + 9) % 24
+      const kstM = now.getUTCMinutes()
+      const today = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`
+      const isWeekday = now.getUTCDay() !== 0 && now.getUTCDay() !== 6
+      if (isWeekday && kstH === 8 && kstM === 0 && morningWakeRef.current !== today) {
+        morningWakeRef.current = today
+        console.log("🌅 08:00 KST 강제 재연결")
+        if (ws.current) ws.current.close()
+      }
+    }, 5000)
+
+    return () => {
+      clearInterval(healthRef.current)
+      stopPolling()
+      ws.current?.close()
+    }
+  }, [connect, startPolling, stopPolling])
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
@@ -759,73 +957,6 @@ export default function App() {
     } catch { alert("검색 중 오류가 발생했습니다.") }
     setSearchLoading(false)
   }
-
-  // ── WebSocket 연결/재연결 ─────────────────────────────────
-  const connect = () => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) return
-    ws.current = new WebSocket("wss://stock-dashboard-production-19d7.up.railway.app/ws/stocks")
-    ws.current.onopen  = () => { wsConnected.current = true; console.log("✅ WS 연결됨") }
-    ws.current.onmessage = (e) => {
-      const data = JSON.parse(e.data)
-      setKrStocks(prev => { prev.forEach(s => { prevKr.current[s.ticker] = s.price }); return data.kr })
-      setUsStocks(prev => { prev.forEach(s => { prevUs.current[s.ticker] = s.price }); return data.us })
-      if (data.macro && Object.keys(data.macro).length > 0) setMacro(data.macro)
-      if (data.news && data.news.length > 0) setNews(data.news)
-      if (data.fear_greed !== undefined) setFearGreed(data.fear_greed)
-      if (data.market_status) setMarketStatus(data.market_status)
-      if (data.recommendations) setRecommendations(data.recommendations)
-      if (data.is_emergency !== undefined) setIsEmergency(data.is_emergency)
-      if (data.emergency_reason !== undefined) setEmergencyReason(data.emergency_reason)
-      if (data.smart_picks && data.smart_picks.length > 0) setSmartPicks(data.smart_picks)
-      if (data.macro_report && data.macro_report.summary) setMacroReport(data.macro_report)
-      if (data.news_sentiment) setNewsSentiment(data.news_sentiment)
-      if (data.sector_flow && data.sector_flow.length > 0) setSectorFlow(data.sector_flow)
-      setLastUpdated(new Date().toLocaleTimeString())
-    }
-    ws.current.onclose = () => {
-      wsConnected.current = false
-      setTimeout(connect, 3000)
-    }
-    ws.current.onerror = () => ws.current?.close()
-  }
-
-  useEffect(() => {
-    // 초기 REST 데이터 로딩
-    fetch(`${API_BASE}/api/kr-stocks`).then(r => r.json()).then(setKrStocks)
-    fetch(`${API_BASE}/api/us-stocks`).then(r => r.json()).then(setUsStocks)
-    fetch(`${API_BASE}/api/macro`).then(r => r.json()).then(setMacro)
-    fetch(`${API_BASE}/api/news`).then(r => r.json()).then(setNews)
-    fetch(`${API_BASE}/api/fear-greed`).then(r => r.json()).then(d => setFearGreed(d.score))
-    fetch(`${API_BASE}/api/market-status`).then(r => r.json()).then(d => setMarketStatus(d.status))
-    fetch(`${API_BASE}/api/smart-picks`).then(r => r.json()).then(setSmartPicks)
-    fetch(`${API_BASE}/api/macro-report`).then(r => r.json()).then(setMacroReport)
-    fetch(`${API_BASE}/api/news-sentiment`).then(r => r.json()).then(setNewsSentiment)
-    fetch(`${API_BASE}/api/sector-flow`).then(r => r.json()).then(setSectorFlow)
-
-    connect()
-
-    // ★ 오전 8시 WebSocket 헬스체크 + 강제 재연결 타이머
-    const morningCheck = setInterval(() => {
-      const now = new Date()
-      // KST = UTC + 9h
-      const kstHour = (now.getUTCHours() + 9) % 24
-      const kstMin  = now.getUTCMinutes()
-      const today   = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`
-      // 평일 08:00~08:01 한 번만 실행
-      const isWeekday = now.getUTCDay() !== 0 && now.getUTCDay() !== 6
-      if (isWeekday && kstHour === 8 && kstMin === 0 && morningWakeRef.current !== today) {
-        morningWakeRef.current = today
-        console.log("🌅 08:00 KST — WebSocket 강제 재연결")
-        if (ws.current) ws.current.close()
-        setTimeout(connect, 500)
-      }
-    }, 30000)  // 30초마다 체크
-
-    return () => {
-      clearInterval(morningCheck)
-      ws.current?.close()
-    }
-  }, [])
 
   return (
     <div style={{ background: showRedAlert ? "#0d0000" : "#0d0d1a", minHeight: "100vh", color: "#fff", fontFamily: "monospace", boxShadow: showRedAlert ? "inset 0 0 60px rgba(255,0,0,0.3)" : "none", transition: "all 0.5s" }}>
@@ -854,12 +985,14 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* 헤더 */}
       <div style={{ background: "#13132a", padding: "12px 24px", borderBottom: "1px solid #222", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: "bold" }}>⚡ AI STOCK TERMINAL</div>
           <div style={{ fontSize: 13, color: "#555", marginTop: 2 }}>
             국장: <MarketBadge status={marketStatus} />
             <span style={{ marginLeft: 8 }}>{lastUpdated ? `업데이트: ${lastUpdated}` : "연결 중..."}</span>
+            <span style={{ marginLeft: 10, fontSize: 11, color: wsStatus.includes("🟢") ? "#22c55e" : wsStatus.includes("REST") ? "#facc15" : "#ff3b3b" }}>{wsStatus}</span>
             {newsSentiment?.score !== undefined && (
               <span style={{ marginLeft: 12, color: getSentimentColor(newsSentiment.score), fontSize: 13 }}>
                 🧠 심리 {newsSentiment.score} ({getSentimentLabel(newsSentiment.score)})
@@ -870,6 +1003,7 @@ export default function App() {
         <FearGreedMeter score={fearGreed} />
       </div>
 
+      {/* 매크로 + 섹터 수급 */}
       <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           <div style={{ display: "flex", gap: 10, flex: 1, flexWrap: "wrap" }}>
@@ -879,6 +1013,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* 검색 */}
       <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", display: "flex", gap: 8 }}>
         <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()}
           placeholder="🔍 티커로 검색 (예: AAPL, 005930, 272210)"
@@ -889,6 +1024,7 @@ export default function App() {
         </button>
       </div>
 
+      {/* 탭 */}
       <div style={{ display: "flex", borderBottom: "1px solid #222", paddingLeft: 24 }}>
         {[["kr","🇰🇷 국내"],["us","🇺🇸 해외"],["picks","🏆 Smart Picks"],["macro","🌐 매크로 분석"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{ padding: "13px 26px", background: "none", border: "none", color: tab === key ? "#fff" : "#666", borderBottom: tab === key ? "2px solid #ff3b3b" : "2px solid transparent", cursor: "pointer", fontSize: 15, fontWeight: tab === key ? "bold" : "normal", fontFamily: "monospace" }}>{label}</button>
