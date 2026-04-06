@@ -37,9 +37,11 @@ function getSentimentLabel(score) {
   return "극단적 탐욕 🤑"
 }
 
+// ── 마켓 배지 — 호가접수 추가 ────────────────────────────────
 function MarketBadge({ status }) {
   const config = {
     "정규":        { color: "#22c55e", bg: "#0d2d0d",  label: "정규"   },
+    "호가접수":    { color: "#00e5ff", bg: "#002d33",  label: "호가접수" }, // ★ 신규
     "장전시간외":  { color: "#facc15", bg: "#2d2a0d",  label: "장전"   },
     "장후시간외":  { color: "#f97316", bg: "#2d1a0d",  label: "장후"   },
     "시간외단일가":{ color: "#ff3b3b", bg: "#2d0d0d",  label: "단일가" },
@@ -111,7 +113,7 @@ function NewsSentimentGauge({ sentiment }) {
 
   return (
     <motion.div
-      animate={isDanger ? { boxShadow: ["0 0 0px #ff000000", "0 0 20px #ff0000bb", "0 0 0px #ff000000"] } : isBull ? { boxShadow: ["0 0 0px #22c55e00", "0 0 14px #22c55e66", "0 0 0px #22c55e00"] } : {}}
+      animate={isDanger ? { boxShadow: ["0 0 0px #ff000000","0 0 20px #ff0000bb","0 0 0px #ff000000"] } : isBull ? { boxShadow: ["0 0 0px #22c55e00","0 0 14px #22c55e66","0 0 0px #22c55e00"] } : {}}
       transition={isDanger || isBull ? { duration: 0.9, repeat: Infinity } : {}}
       style={{ background: bgColor, border: `1px solid ${color}`, borderRadius: 10, padding: "12px 14px", marginTop: 10 }}
     >
@@ -178,13 +180,10 @@ function SectorFlowTable({ sectorFlow }) {
   if (!sectorFlow || sectorFlow.length === 0) return null
   const krFlow = sectorFlow.filter(s => s.market === "KR")
   const usFlow = sectorFlow.filter(s => s.market === "US")
-
   const Table = ({ data, title, flag }) => (
     <div style={{ background: "#13132a", border: "1px solid #222", borderRadius: 10, padding: "10px 14px", minWidth: 210, flexShrink: 0 }}>
       <div style={{ color: "#ffd700", fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>{flag} {title} 섹터 수급</div>
-      {data.length === 0 ? (
-        <div style={{ color: "#444", fontSize: 12 }}>데이터 없음</div>
-      ) : (
+      {data.length === 0 ? <div style={{ color: "#444", fontSize: 12 }}>데이터 없음</div> : (
         data.slice(0, 6).map((s, i) => {
           const isUp = s.avg_change >= 0
           return (
@@ -207,7 +206,6 @@ function SectorFlowTable({ sectorFlow }) {
       )}
     </div>
   )
-
   return (
     <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
       <Table data={krFlow} title="국장" flag="🇰🇷" />
@@ -216,7 +214,8 @@ function SectorFlowTable({ sectorFlow }) {
   )
 }
 
-function CandleChart({ ticker, onTimeframeChange, livePrice }) {
+// ── 🕯️ 캔들차트 — KST 타임존 + 비교선 ──────────────────────
+function CandleChart({ ticker, onTimeframeChange }) {
   const containerRef     = useRef(null)
   const chartRef         = useRef(null)
   const seriesRef        = useRef(null)
@@ -230,18 +229,33 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
   useEffect(() => {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth, height: 220,
+      width:  containerRef.current.clientWidth,
+      height: 220,
       layout: { background: { color: "#0d0d1a" }, textColor: "#bbb" },
-      grid: { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
-      timeScale: { timeVisible: true, secondsVisible: false },
+      grid:   { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
+      timeScale: {
+        timeVisible:    true,
+        secondsVisible: false,
+        // ★ KST(UTC+9) 로컬 표시 — lightweight-charts는 unix timestamp를 그대로 UTC로 표시하므로
+        //   api.py에서 이미 +9h 보정한 timestamp를 받아서 사용
+        tickMarkFormatter: (time) => {
+          const d = new Date(time * 1000)
+          const h = String(d.getUTCHours()).padStart(2, "0")
+          const m = String(d.getUTCMinutes()).padStart(2, "0")
+          const mo = String(d.getUTCMonth() + 1).padStart(2, "0")
+          const day = String(d.getUTCDate()).padStart(2, "0")
+          // 분봉: HH:mm / 일봉: MM/DD
+          return h === "00" && m === "00" ? `${mo}/${day}` : `${h}:${m}`
+        },
+      },
       rightPriceScale: { borderColor: "#1a1a2e" },
-      leftPriceScale: { visible: false, borderColor: "#2a2a3a" },
+      leftPriceScale:  { visible: false, borderColor: "#2a2a3a" },
       crosshair: { mode: 1 },
     })
     const series = chart.addSeries(CandlestickSeries, {
       upColor: "#ff3b3b", downColor: "#3b82f6",
       borderUpColor: "#ff3b3b", borderDownColor: "#3b82f6",
-      wickUpColor: "#ff3b3b", wickDownColor: "#3b82f6",
+      wickUpColor:   "#ff3b3b", wickDownColor:   "#3b82f6",
     })
     chartRef.current  = chart
     seriesRef.current = series
@@ -256,6 +270,7 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
     }
   }, [])
 
+  // 메인 캔들 데이터
   useEffect(() => {
     if (!seriesRef.current) return
     setLoading(true); setError(null)
@@ -276,6 +291,7 @@ function CandleChart({ ticker, onTimeframeChange, livePrice }) {
       .catch(() => { setError("로딩 실패"); setLoading(false) })
   }, [ticker, activeIdx])
 
+  // 비교선 오버레이
   useEffect(() => {
     if (!chartRef.current) return
     if (compareSeriesRef.current) {
@@ -538,7 +554,7 @@ function SmartMoneyPicks({ picks }) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid #222" }}>
-              {["#", "티커", "종목", "섹터", "AI 점수", "등급", "현재가", "업사이드"].map(h => (
+              {["#","티커","종목","섹터","AI 점수","등급","현재가","업사이드"].map(h => (
                 <th key={h} style={{ padding: "9px 12px", color: "#666", textAlign: "left", fontWeight: "normal" }}>{h}</th>
               ))}
             </tr>
@@ -637,7 +653,7 @@ function SearchResultCard({ result, onClose, isEmergency, newsSentiment }) {
           <button onClick={onClose} style={{ background: "none", border: "1px solid #555", color: "#aaa", borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontSize: 13 }}>✕ 닫기</button>
         </div>
       </div>
-      <CandleChart ticker={result.ticker} onTimeframeChange={setActiveTimeframe} livePrice={result.price} />
+      <CandleChart ticker={result.ticker} onTimeframeChange={setActiveTimeframe} />
       <NewsSentimentGauge sentiment={newsSentiment} />
       <SniperBox ticker={result.ticker} currency={result.currency} cachedRec={result.recommendation} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
     </motion.div>
@@ -692,7 +708,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency, newsSentiment }) 
         {expanded && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
             onClick={e => e.stopPropagation()}>
-            <CandleChart ticker={stock.ticker} onTimeframeChange={setActiveTimeframe} livePrice={stock.price} />
+            <CandleChart ticker={stock.ticker} onTimeframeChange={setActiveTimeframe} />
             <NewsSentimentGauge sentiment={newsSentiment} />
             <SniperBox ticker={stock.ticker} currency={stock.currency} cachedRec={cachedRec} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
           </motion.div>
@@ -702,6 +718,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency, newsSentiment }) 
   )
 }
 
+// ── 🚀 App 루트 — WebSocket 8시 헬스체크 포함 ────────────────
 export default function App() {
   const [krStocks, setKrStocks]               = useState([])
   const [usStocks, setUsStocks]               = useState([])
@@ -721,13 +738,14 @@ export default function App() {
   const [macroReport, setMacroReport]         = useState({})
   const [newsSentiment, setNewsSentiment]     = useState({})
   const [sectorFlow, setSectorFlow]           = useState([])
-  const prevKr = useRef({})
-  const prevUs = useRef({})
-  const ws     = useRef(null)
+  const prevKr     = useRef({})
+  const prevUs     = useRef({})
+  const ws         = useRef(null)
+  const wsConnected = useRef(false)
+  const morningWakeRef = useRef(null)  // 오늘 날짜 추적
 
   const isExtremeFear     = fearGreed >= 70
   const isSentimentDanger = newsSentiment?.is_danger || newsSentiment?.score <= 30
-  const isSentimentBull   = newsSentiment?.score >= 70
   const showRedAlert      = isExtremeFear || isEmergency || isSentimentDanger
 
   const handleSearch = async () => {
@@ -742,7 +760,37 @@ export default function App() {
     setSearchLoading(false)
   }
 
+  // ── WebSocket 연결/재연결 ─────────────────────────────────
+  const connect = () => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) return
+    ws.current = new WebSocket("wss://stock-dashboard-production-19d7.up.railway.app/ws/stocks")
+    ws.current.onopen  = () => { wsConnected.current = true; console.log("✅ WS 연결됨") }
+    ws.current.onmessage = (e) => {
+      const data = JSON.parse(e.data)
+      setKrStocks(prev => { prev.forEach(s => { prevKr.current[s.ticker] = s.price }); return data.kr })
+      setUsStocks(prev => { prev.forEach(s => { prevUs.current[s.ticker] = s.price }); return data.us })
+      if (data.macro && Object.keys(data.macro).length > 0) setMacro(data.macro)
+      if (data.news && data.news.length > 0) setNews(data.news)
+      if (data.fear_greed !== undefined) setFearGreed(data.fear_greed)
+      if (data.market_status) setMarketStatus(data.market_status)
+      if (data.recommendations) setRecommendations(data.recommendations)
+      if (data.is_emergency !== undefined) setIsEmergency(data.is_emergency)
+      if (data.emergency_reason !== undefined) setEmergencyReason(data.emergency_reason)
+      if (data.smart_picks && data.smart_picks.length > 0) setSmartPicks(data.smart_picks)
+      if (data.macro_report && data.macro_report.summary) setMacroReport(data.macro_report)
+      if (data.news_sentiment) setNewsSentiment(data.news_sentiment)
+      if (data.sector_flow && data.sector_flow.length > 0) setSectorFlow(data.sector_flow)
+      setLastUpdated(new Date().toLocaleTimeString())
+    }
+    ws.current.onclose = () => {
+      wsConnected.current = false
+      setTimeout(connect, 3000)
+    }
+    ws.current.onerror = () => ws.current?.close()
+  }
+
   useEffect(() => {
+    // 초기 REST 데이터 로딩
     fetch(`${API_BASE}/api/kr-stocks`).then(r => r.json()).then(setKrStocks)
     fetch(`${API_BASE}/api/us-stocks`).then(r => r.json()).then(setUsStocks)
     fetch(`${API_BASE}/api/macro`).then(r => r.json()).then(setMacro)
@@ -754,29 +802,29 @@ export default function App() {
     fetch(`${API_BASE}/api/news-sentiment`).then(r => r.json()).then(setNewsSentiment)
     fetch(`${API_BASE}/api/sector-flow`).then(r => r.json()).then(setSectorFlow)
 
-    const connect = () => {
-      ws.current = new WebSocket("wss://stock-dashboard-production-19d7.up.railway.app/ws/stocks")
-      ws.current.onmessage = (e) => {
-        const data = JSON.parse(e.data)
-        setKrStocks(prev => { prev.forEach(s => { prevKr.current[s.ticker] = s.price }); return data.kr })
-        setUsStocks(prev => { prev.forEach(s => { prevUs.current[s.ticker] = s.price }); return data.us })
-        if (data.macro && Object.keys(data.macro).length > 0) setMacro(data.macro)
-        if (data.news && data.news.length > 0) setNews(data.news)
-        if (data.fear_greed !== undefined) setFearGreed(data.fear_greed)
-        if (data.market_status) setMarketStatus(data.market_status)
-        if (data.recommendations) setRecommendations(data.recommendations)
-        if (data.is_emergency !== undefined) setIsEmergency(data.is_emergency)
-        if (data.emergency_reason !== undefined) setEmergencyReason(data.emergency_reason)
-        if (data.smart_picks && data.smart_picks.length > 0) setSmartPicks(data.smart_picks)
-        if (data.macro_report && data.macro_report.summary) setMacroReport(data.macro_report)
-        if (data.news_sentiment) setNewsSentiment(data.news_sentiment)
-        if (data.sector_flow && data.sector_flow.length > 0) setSectorFlow(data.sector_flow)
-        setLastUpdated(new Date().toLocaleTimeString())
-      }
-      ws.current.onclose = () => setTimeout(connect, 3000)
-    }
     connect()
-    return () => ws.current?.close()
+
+    // ★ 오전 8시 WebSocket 헬스체크 + 강제 재연결 타이머
+    const morningCheck = setInterval(() => {
+      const now = new Date()
+      // KST = UTC + 9h
+      const kstHour = (now.getUTCHours() + 9) % 24
+      const kstMin  = now.getUTCMinutes()
+      const today   = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`
+      // 평일 08:00~08:01 한 번만 실행
+      const isWeekday = now.getUTCDay() !== 0 && now.getUTCDay() !== 6
+      if (isWeekday && kstHour === 8 && kstMin === 0 && morningWakeRef.current !== today) {
+        morningWakeRef.current = today
+        console.log("🌅 08:00 KST — WebSocket 강제 재연결")
+        if (ws.current) ws.current.close()
+        setTimeout(connect, 500)
+      }
+    }, 30000)  // 30초마다 체크
+
+    return () => {
+      clearInterval(morningCheck)
+      ws.current?.close()
+    }
   }, [])
 
   return (
@@ -842,7 +890,7 @@ export default function App() {
       </div>
 
       <div style={{ display: "flex", borderBottom: "1px solid #222", paddingLeft: 24 }}>
-        {[["kr", "🇰🇷 국내"], ["us", "🇺🇸 해외"], ["picks", "🏆 Smart Picks"], ["macro", "🌐 매크로 분석"]].map(([key, label]) => (
+        {[["kr","🇰🇷 국내"],["us","🇺🇸 해외"],["picks","🏆 Smart Picks"],["macro","🌐 매크로 분석"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{ padding: "13px 26px", background: "none", border: "none", color: tab === key ? "#fff" : "#666", borderBottom: tab === key ? "2px solid #ff3b3b" : "2px solid transparent", cursor: "pointer", fontSize: 15, fontWeight: tab === key ? "bold" : "normal", fontFamily: "monospace" }}>{label}</button>
         ))}
       </div>
