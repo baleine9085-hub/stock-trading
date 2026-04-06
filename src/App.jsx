@@ -215,19 +215,25 @@ function SectorFlowTable({ sectorFlow }) {
   )
 }
 
-// ── 🕯️ CandleChart — 완전 개편 ───────────────────────────────
-function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice }) {
+function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marketStatus = "" }) {
   const containerRef     = useRef(null)
   const chartRef         = useRef(null)
   const seriesRef        = useRef(null)
   const compareSeriesRef = useRef(null)
-  const lastTsRef        = useRef(0)       // ★ 최신성 검증용
+  const lastCandleRef    = useRef(null)
+  const sessionRef       = useRef("")        // ★ 세션 전환 감지
+  const fitTimerRef      = useRef(null)      // ★ fitContent 타이머
+  const holdTimerRef     = useRef(null)      // ★ 횡보 캔들 타이머
+
   const [activeIdx, setActiveIdx]   = useState(1)
   const [compareIdx, setCompareIdx] = useState(0)
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState(null)
   const [syncing, setSyncing]       = useState(false)
   const tf = TIMEFRAMES[activeIdx]
+
+  // ── 프리/애프터 세션 여부 ─────────────────────────────────────
+  const isExtSession = ["프리마켓", "애프터마켓", "호가접수", "장전시간외", "시간외단일가"].includes(marketStatus)
 
   // ── 차트 초기화 ──────────────────────────────────────────────
   useEffect(() => {
@@ -238,13 +244,12 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice }) {
       layout: { background: { color: "#0d0d1a" }, textColor: "#bbb" },
       grid:   { vertLines: { color: "#1a1a2e" }, horzLines: { color: "#1a1a2e" } },
       timeScale: {
-        timeVisible: true,
+        timeVisible:    true,
         secondsVisible: false,
-        rightOffset: 5,           // ★ 우측 여백 자동 확장
-        barSpacing: 6,
-        // ★ X축: 브라우저 로컬 시간으로 표시
-        tickMarkFormatter: (utcTs) => {
-          const d = new Date(utcTs * 1000)
+        rightOffset:    10,
+        barSpacing:     6,
+        tickMarkFormatter: (ts) => {
+          const d   = new Date(ts * 1000)
           const h   = String(d.getHours()).padStart(2, "0")
           const m   = String(d.getMinutes()).padStart(2, "0")
           const mo  = String(d.getMonth() + 1).padStart(2, "0")
@@ -263,7 +268,7 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice }) {
     })
     chartRef.current  = chart
     seriesRef.current = series
-    lastTsRef.current = 0
+    lastCandleRef.current = null
 
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current)
@@ -271,40 +276,39 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice }) {
     })
     ro.observe(containerRef.current)
     return () => {
-      ro.disconnect(); chart.remove()
-      chartRef.current = null; seriesRef.current = null; compareSeriesRef.current = null
+      ro.disconnect()
+      chart.remove()
+      chartRef.current = null
+      seriesRef.current = null
+      compareSeriesRef.current = null
+      lastCandleRef.current = null
+      if (fitTimerRef.current)  clearInterval(fitTimerRef.current)
+      if (holdTimerRef.current) clearInterval(holdTimerRef.current)
     }
   }, [])
 
-  // ── 데이터 로딩 함수 ─────────────────────────────────────────
+  // ── 데이터 로딩 ──────────────────────────────────────────────
   const loadData = useCallback(() => {
     if (!seriesRef.current) return
     setLoading(true); setError(null)
-
     fetch(`${API_BASE}/api/chart/${ticker}?interval=${tf.interval}&period=${tf.period}`)
       .then(r => r.json())
       .then(raw => {
         if (!seriesRef.current) return
         if (!Array.isArray(raw)) { setError("데이터 없음"); setLoading(false); return }
-
         const seen = new Set()
-        // ★ 타임스탬프를 브라우저 로컬 기준으로 변환
         const formatted = raw
-          .map(d => {
-            // UTC unix → 로컬 Date → 다시 unix (로컬 기준 정렬용)
-            const localTs = d.timestamp   // 서버가 UTC unix 반환
-            return { time: localTs, open: d.open, high: d.high, low: d.low, close: d.close }
-          })
+          .map(d => ({ time: d.timestamp, open: d.open, high: d.high, low: d.low, close: d.close }))
           .filter(d => {
             if (!d.time || isNaN(d.time) || seen.has(d.time)) return false
             seen.add(d.time); return true
           })
           .sort((a, b) => a.time - b.time)
 
-        if (formatted.length > 0) {
-          lastTsRef.current = formatted[formatted.length - 1].time
-        }
         seriesRef.current.setData(formatted)
+        if (formatted.length > 0) {
+          lastCandleRef.current = { ...formatted[formatted.length - 1] }
+        }
         chartRef.current?.timeScale().fitContent()
         setLoading(false)
       })
@@ -313,31 +317,121 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice }) {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // ── ★ 실시간 가격 → 차트 끝단 동기화 ──────────────────────
+  // ── ★ 세션 전환 감지 → 차트 리셋 후 재로드 ─────────────────
+  useEffect(() => {
+    if (!marketStatus) return
+    const prev = sessionRef.current
+    const curr = marketStatus
+
+    // 세션이 바뀌었을 때만 리셋
+    if (prev && prev !== curr) {
+      const sessionGroup = (s) => {
+        if (["정규"].includes(s)) return "regular"
+        if (["프리마켓", "호가접수", "장전시간외"].includes(s)) return "pre"
+        if (["애프터마켓", "시간외단일가", "장후시간외"].includes(s)) return "after"
+        return "off"
+      }
+      if (sessionGroup(prev) !== sessionGroup(curr)) {
+        console.log(`🔄 세션 전환: ${prev} → ${curr} → 차트 리셋`)
+        if (seriesRef.current) {
+          try { seriesRef.current.setData([]) } catch {}
+          lastCandleRef.current = null
+        }
+        setTimeout(() => loadData(), 300)
+      }
+    }
+    sessionRef.current = curr
+  }, [marketStatus])
+
+  // ── ★ 프리/애프터 세션: 5초마다 fitContent 자동 실행 ────────
+  useEffect(() => {
+    if (fitTimerRef.current) clearInterval(fitTimerRef.current)
+    if (isExtSession && chartRef.current) {
+      fitTimerRef.current = setInterval(() => {
+        try { chartRef.current?.timeScale().scrollToRealTime() } catch {}
+      }, 5000)
+    }
+    return () => { if (fitTimerRef.current) clearInterval(fitTimerRef.current) }
+  }, [isExtSession])
+
+  // ── ★ 24시간 횡보 캔들 — 마지막 체결 이후 시간축 유지 ───────
+  useEffect(() => {
+    if (holdTimerRef.current) clearInterval(holdTimerRef.current)
+    holdTimerRef.current = setInterval(() => {
+      if (!seriesRef.current || !lastCandleRef.current) return
+      if (tf.interval === "1d") return  // 일봉은 불필요
+
+      const intervalSec = tf.interval === "1m" ? 60 : tf.interval === "5m" ? 300 : 3600
+      const nowTs    = Math.floor(Date.now() / 1000)
+      const candleTs = Math.floor(nowTs / intervalSec) * intervalSec
+      const last     = lastCandleRef.current
+
+      // 마지막 캔들이 현재 구간보다 오래됐으면 횡보 캔들 추가
+      if (candleTs > last.time) {
+        const holdCandle = {
+          time:  candleTs,
+          open:  last.close,
+          high:  last.close,
+          low:   last.close,
+          close: last.close,
+        }
+        try {
+          seriesRef.current.update(holdCandle)
+          lastCandleRef.current = holdCandle
+        } catch {}
+      }
+    }, 10000)  // 10초마다 체크
+
+    return () => { if (holdTimerRef.current) clearInterval(holdTimerRef.current) }
+  }, [activeIdx])
+
+  // ── ★ livePrice → Tick by Tick + 프리장 시간 보정 ───────────
   useEffect(() => {
     if (!seriesRef.current || !livePrice || tf.interval === "1d") return
 
-    // 현재 시스템 시간 기준 타임스탬프 (1초 단위)
-    const nowTs = Math.floor(Date.now() / 1000)
+    const intervalSec = tf.interval === "1m" ? 60 : tf.interval === "5m" ? 300 : 3600
+    const nowTs       = Math.floor(Date.now() / 1000)
+    const candleTs    = Math.floor(nowTs / intervalSec) * intervalSec
+    const last        = lastCandleRef.current
 
-    // ★ 최신성 검증: 서버 데이터보다 과거면 무시
-    if (nowTs < lastTsRef.current - 60) return
+    // ★ 프리/애프터: 서버 시간이 5분 이상 뒤쳐지면 현재 시각으로 강제 보정
+    let targetTs = candleTs
+    if (isExtSession && last) {
+      const drift = Math.abs(nowTs - last.time)
+      if (drift > 300) {
+        targetTs = candleTs  // 현재 시스템 시각 기준 강제 사용
+        console.log(`⚡ 프리장 시간 보정: drift=${drift}s → ${new Date(targetTs*1000).toLocaleTimeString()}`)
+      }
+    }
 
-    // 현재 캔들 구간 시작 시각 계산
-    const intervalSec = tf.interval === "1m" ? 60 : tf.interval === "5m" ? 300 : tf.interval === "60m" ? 3600 : 86400
-    const candleTs = Math.floor(nowTs / intervalSec) * intervalSec
-
-    try {
-      seriesRef.current.update({
-        time:  candleTs,
+    if (!last || targetTs > last.time) {
+      // 새 캔들 구간
+      const newCandle = {
+        time:  targetTs,
         open:  livePrice,
         high:  livePrice,
         low:   livePrice,
         close: livePrice,
-      })
-      // 최신 타임스탬프 갱신
-      if (candleTs > lastTsRef.current) lastTsRef.current = candleTs
-    } catch {}
+      }
+      try {
+        seriesRef.current.update(newCandle)
+        lastCandleRef.current = newCandle
+        chartRef.current?.timeScale().scrollToRealTime()
+      } catch {}
+    } else {
+      // 같은 캔들 구간: Tick by Tick 업데이트
+      const updated = {
+        time:  last.time,
+        open:  last.open,
+        high:  Math.max(last.high, livePrice),
+        low:   Math.min(last.low,  livePrice),
+        close: livePrice,
+      }
+      try {
+        seriesRef.current.update(updated)
+        lastCandleRef.current = updated
+      } catch {}
+    }
   }, [livePrice])
 
   // ── 비교선 ───────────────────────────────────────────────────
@@ -350,7 +444,6 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice }) {
     chartRef.current.priceScale("left").applyOptions({ visible: false })
     const opt = COMPARE_OPTIONS[compareIdx]
     if (!opt.ticker) return
-
     fetch(`${API_BASE}/api/chart/${encodeURIComponent(opt.ticker)}?interval=${tf.interval}&period=${tf.period}`)
       .then(r => r.json())
       .then(data => {
@@ -374,51 +467,62 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice }) {
       }).catch(() => {})
   }, [compareIdx, activeIdx, ticker])
 
-  // ── 동기화 버튼 ─────────────────────────────────────────────
+  // ── 동기화 버튼 ──────────────────────────────────────────────
   const handleSync = (e) => {
     e.stopPropagation()
     setSyncing(true)
-    lastTsRef.current = 0
+    lastCandleRef.current = null
+    if (seriesRef.current) { try { seriesRef.current.setData([]) } catch {} }
     loadData()
     setTimeout(() => setSyncing(false), 1500)
   }
 
   const handleTf = (e, idx) => {
-    e.stopPropagation(); setActiveIdx(idx)
+    e.stopPropagation()
+    setActiveIdx(idx)
     onTimeframeChange?.(TIMEFRAMES[idx].interval)
   }
 
   return (
     <div style={{ marginTop: 12 }}>
-      {/* 컨트롤 행 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <select onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); setCompareIdx(parseInt(e.target.value)) }} value={compareIdx}
+          <select onClick={e => e.stopPropagation()}
+            onChange={e => { e.stopPropagation(); setCompareIdx(parseInt(e.target.value)) }}
+            value={compareIdx}
             style={{ background: "#0d0d1a", color: "#a78bfa", border: "1px solid #2a2a3a", borderRadius: 4, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: "monospace", outline: "none" }}>
             {COMPARE_OPTIONS.map((opt, i) => <option key={i} value={i}>{opt.label}</option>)}
           </select>
-          {/* ★ 데이터 동기화 버튼 */}
           <button onClick={handleSync} style={{
             background: syncing ? "#1a2d0d" : "#0d0d1a",
-            color: syncing ? "#22c55e" : "#555",
+            color:      syncing ? "#22c55e" : "#555",
             border: `1px solid ${syncing ? "#22c55e" : "#2a2a3a"}`,
             borderRadius: 4, padding: "4px 8px", fontSize: 11,
             cursor: "pointer", fontFamily: "monospace", transition: "all 0.2s",
           }}>
             {syncing ? "⏳ 동기화 중..." : "🔄 동기화"}
           </button>
+          {/* ★ 프리/애프터 세션 표시 */}
+          {isExtSession && (
+            <motion.span animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1.5, repeat: Infinity }}
+              style={{ fontSize: 10, color: "#a78bfa", border: "1px solid #a78bfa44", borderRadius: 3, padding: "2px 6px" }}>
+              ⚡ {marketStatus} 실시간
+            </motion.span>
+          )}
         </div>
-        {/* 타임프레임 버튼 */}
         <div style={{ display: "flex", gap: 4 }}>
           {TIMEFRAMES.map((t, i) => {
             const isActive = i === activeIdx
             return (
               <button key={t.label} onClick={e => handleTf(e, i)} style={{
-                background: isActive ? "#6366f1" : "#0d0d1a", color: isActive ? "#fff" : "#555",
+                background: isActive ? "#6366f1" : "#0d0d1a",
+                color:      isActive ? "#fff"    : "#555",
                 border: `1px solid ${isActive ? "#6366f1" : "#2a2a3a"}`,
                 borderRadius: 4, padding: "4px 12px", fontSize: 12,
-                cursor: "pointer", fontFamily: "monospace", fontWeight: isActive ? "bold" : "normal",
-                transition: "all 0.15s", boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
+                cursor: "pointer", fontFamily: "monospace",
+                fontWeight: isActive ? "bold" : "normal",
+                transition: "all 0.15s",
+                boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
               }}>{t.label}</button>
             )
           })}
@@ -727,7 +831,7 @@ function SearchResultCard({ result, onClose, isEmergency, newsSentiment }) {
           <button onClick={onClose} style={{ background: "none", border: "1px solid #555", color: "#aaa", borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontSize: 13 }}>✕ 닫기</button>
         </div>
       </div>
-      <CandleChart ticker={result.ticker} isKR={isKR} onTimeframeChange={setActiveTimeframe} livePrice={result.price} />
+      <CandleChart ticker={result.ticker} isKR={isKR} onTimeframeChange={setActiveTimeframe} livePrice={result.price} marketStatus={result.market_status} />
       <NewsSentimentGauge sentiment={newsSentiment} />
       <SniperBox ticker={result.ticker} currency={result.currency} cachedRec={result.recommendation} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
     </motion.div>
@@ -783,7 +887,7 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency, newsSentiment }) 
         {expanded && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
             onClick={e => e.stopPropagation()}>
-            <CandleChart ticker={stock.ticker} isKR={isKR} onTimeframeChange={setActiveTimeframe} livePrice={stock.price} />
+            <CandleChart ticker={stock.ticker} isKR={isKR} onTimeframeChange={setActiveTimeframe} livePrice={stock.price} marketStatus={stock.market_status} />
             <NewsSentimentGauge sentiment={newsSentiment} />
             <SniperBox ticker={stock.ticker} currency={stock.currency} cachedRec={cachedRec} isGlobalEmergency={isEmergency} timeframe={activeTimeframe} />
           </motion.div>
