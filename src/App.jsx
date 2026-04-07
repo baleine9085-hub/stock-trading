@@ -554,50 +554,76 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
 }
 
 function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe = "5m" }) {
-  const [selectedAI, setSelectedAI]   = useState("gemini")   // ★ AI 선택
-  const [geminiData, setGeminiData]   = useState(cachedRec || null)
-  const [gptData, setGptData]         = useState(null)
-  const [loading, setLoading]         = useState(!cachedRec)
-  const [gptLoading, setGptLoading]   = useState(false)
-  const [visible, setVisible]         = useState(true)        // ★ 페이드 효과
+  const [selectedAI, setSelectedAI]     = useState("gemini")
+  const [geminiData, setGeminiData]     = useState(cachedRec || null)
+  const [gptData, setGptData]           = useState(null)
+  const [geminiLoading, setGeminiLoading] = useState(!cachedRec)
+  const [gptLoading, setGptLoading]     = useState(false)
+  const [switchLoading, setSwitchLoading] = useState(false)  // ★ 전환 중 스피너
+  const [visible, setVisible]           = useState(true)
 
   const isMinute = timeframe === "1m" || timeframe === "5m"
   const isHourly = timeframe === "60m"
   const isDaily  = timeframe === "1d"
 
-  // Gemini 데이터 로딩
+  // Gemini 로딩
   useEffect(() => {
-    if (cachedRec) { setGeminiData(cachedRec); setLoading(false); return }
-    setLoading(true)
+    if (cachedRec) { setGeminiData(cachedRec); setGeminiLoading(false); return }
+    setGeminiLoading(true)
     fetch(`${API_BASE}/api/recommend/${ticker}`)
-      .then(r => r.json()).then(d => { setGeminiData(d); setLoading(false) })
-      .catch(() => setLoading(false))
+      .then(r => r.json())
+      .then(d => { if (!d.error) setGeminiData(d); setGeminiLoading(false) })
+      .catch(() => setGeminiLoading(false))
   }, [ticker, cachedRec])
 
-  // GPT 데이터 로딩
+  // GPT 로딩
   useEffect(() => {
     setGptLoading(true)
     fetch(`${API_BASE}/api/recommend-tech/${ticker}`)
-      .then(r => r.json()).then(d => { setGptData(d); setGptLoading(false) })
+      .then(r => r.json())
+      .then(d => { if (!d.error) setGptData(d); setGptLoading(false) })
       .catch(() => setGptLoading(false))
   }, [ticker])
 
-  // ★ AI 전환 시 페이드 효과
+  // ★ Keep-Previous: 전환 시 기존 데이터 유지하며 스피너만 표시
   const switchAI = (model) => {
     if (model === selectedAI) return
+    const targetData = model === "gemini" ? geminiData : gptData
+    const targetLoading = model === "gemini" ? geminiLoading : gptLoading
+
+    setSelectedAI(model)
     setVisible(false)
-    setTimeout(() => { setSelectedAI(model); setVisible(true) }, 200)
+    setTimeout(() => setVisible(true), 150)
+
+    // 타겟 데이터가 없으면 즉시 로딩
+    if (!targetData && !targetLoading) {
+      setSwitchLoading(true)
+      const url = model === "gemini"
+        ? `${API_BASE}/api/recommend/${ticker}`
+        : `${API_BASE}/api/recommend-tech/${ticker}`
+      fetch(url).then(r => r.json()).then(d => {
+        if (!d.error) {
+          if (model === "gemini") setGeminiData(d)
+          else setGptData(d)
+        }
+        setSwitchLoading(false)
+      }).catch(() => setSwitchLoading(false))
+    }
   }
 
-  const data = selectedAI === "gemini" ? geminiData : gptData
   const isGemini = selectedAI === "gemini"
+  // ★ Keep-Previous: 새 데이터 없으면 이전 모델 데이터 임시 표시
+  const data = isGemini
+    ? (geminiData || gptData)
+    : (gptData || geminiData)
+  const isLoadingCurrent = isGemini ? geminiLoading : gptLoading
 
   const fmt = (v) => {
     if (v === undefined || v === null || isNaN(Number(v))) return "-"
     return currency === "KRW" ? `₩${Number(v).toLocaleString()}` : `$${Number(v).toFixed(2)}`
   }
 
-  // ★ AI 합의 여부 (두 타점의 buy1 차이가 2% 이내)
+  // ★ AI 합의 여부
   const isConsensus = geminiData && gptData && !geminiData.error && !gptData.error &&
     Math.abs((geminiData.buy1 - gptData.buy1) / geminiData.buy1) < 0.02
 
@@ -610,7 +636,7 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
     return `최근 전략 수립: ${Math.floor(diff / 60)}시간 전`
   }
 
-  if (loading) return (
+  if (geminiLoading && !geminiData) return (
     <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1.2, repeat: Infinity }}
       style={{ marginTop: 12, background: "#0d0d1a", border: "1px solid #333", borderRadius: 8, padding: "20px", textAlign: "center", color: "#555", fontSize: 15 }}>
       ⚙️ 전략 수립 중...
@@ -619,12 +645,10 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
   if (!data || data.error) return null
 
   const isEmergency = data.is_emergency || isGlobalEmergency
-
-  // ★ 모델별 색상
-  const modelColor  = isGemini ? "#4285f4" : "#10a37f"
-  const modelGlow   = isGemini
-    ? "0 0 16px rgba(66,133,244,0.4)"
-    : "0 0 16px rgba(16,163,127,0.4)"
+  const modelColor = isGemini ? "#4285f4" : "#10a37f"
+  const modelGlow  = isGemini
+    ? "0 0 16px rgba(66,133,244,0.35)"
+    : "0 0 16px rgba(16,163,127,0.35)"
 
   const buy1Highlight = isMinute ? { boxShadow: "0 0 14px rgba(34,197,94,0.55)", border: "1px solid #22c55e", transform: "scale(1.03)" } : {}
   const buy3Highlight = isDaily  ? { boxShadow: "0 0 14px rgba(249,115,22,0.6)",  border: "1px solid #f97316", transform: "scale(1.03)" } : {}
@@ -638,67 +662,76 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ color: "#555", fontSize: 11 }}>참모 선택:</span>
 
-        {/* Gemini 버튼 */}
         <button onClick={() => switchAI("gemini")} style={{
           background: isGemini ? "#0d1a2d" : "#0d0d1a",
           color: isGemini ? "#4285f4" : "#555",
           border: `1px solid ${isGemini ? "#4285f4" : "#2a2a3a"}`,
           borderRadius: 6, padding: "4px 12px", fontSize: 12,
-          cursor: "pointer", fontFamily: "monospace", fontWeight: isGemini ? "bold" : "normal",
+          cursor: "pointer", fontFamily: "monospace",
+          fontWeight: isGemini ? "bold" : "normal",
           boxShadow: isGemini ? "0 0 10px rgba(66,133,244,0.4)" : "none",
           transition: "all 0.2s",
-        }}>
-          🔵 Gemini
-        </button>
+        }}>🔵 Gemini</button>
 
-        {/* GPT 버튼 */}
         <button onClick={() => switchAI("gpt")} style={{
           background: !isGemini ? "#0d1a14" : "#0d0d1a",
           color: !isGemini ? "#10a37f" : "#555",
           border: `1px solid ${!isGemini ? "#10a37f" : "#2a2a3a"}`,
           borderRadius: 6, padding: "4px 12px", fontSize: 12,
-          cursor: "pointer", fontFamily: "monospace", fontWeight: !isGemini ? "bold" : "normal",
+          cursor: "pointer", fontFamily: "monospace",
+          fontWeight: !isGemini ? "bold" : "normal",
           boxShadow: !isGemini ? "0 0 10px rgba(16,163,127,0.4)" : "none",
           transition: "all 0.2s",
-        }}>
-          🟢 GPT-4o
-        </button>
+        }}>🟢 GPT-4o</button>
 
-        {/* ★ AI 합의 배지 */}
         {isConsensus && (
-          <motion.span
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
+          <motion.span initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
             style={{ background: "#1a1a0d", color: "#ffd700", border: "1px solid #ffd70066", fontSize: 10, padding: "2px 8px", borderRadius: 10, fontWeight: "bold" }}>
             ✨ AI 합의 완료
           </motion.span>
         )}
 
-        {/* GPT 로딩 중 */}
-        {gptLoading && (
-          <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1, repeat: Infinity }}
-            style={{ color: "#555", fontSize: 10 }}>⚙️ GPT 분석 중...</motion.span>
+        {/* ★ 전환 중 스피너 */}
+        {(switchLoading || (isLoadingCurrent && !data)) && (
+          <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 0.8, repeat: Infinity }}
+            style={{ color: modelColor, fontSize: 10 }}>⚙️ 분석 중...</motion.span>
         )}
 
-        {/* 현재 모델 라벨 */}
+        {/* ★ GPT 데이터 없을 때 경고 */}
+        {!isGemini && !gptData && !gptLoading && (
+          <span style={{ color: "#facc15", fontSize: 10 }}>⏳ 데이터 수신 대기 중</span>
+        )}
+
         <span style={{ marginLeft: "auto", color: modelColor, fontSize: 10, opacity: 0.7 }}>
           {isGemini ? "시황 중심" : "기술적 지표 중심"}
+          {/* ★ 이전 모델 데이터 임시 표시 중 안내 */}
+          {isGemini && !geminiData && gptData && <span style={{ color: "#facc15" }}> (이전 데이터)</span>}
+          {!isGemini && !gptData && geminiData && <span style={{ color: "#facc15" }}> (이전 데이터)</span>}
         </span>
       </div>
 
       {tfHint && <div style={{ fontSize: 12, color: "#6366f1", marginBottom: 6, textAlign: "right", opacity: 0.8 }}>📐 {tfHint}</div>}
 
-      {/* ★ 페이드 인/아웃 래퍼 */}
+      {/* ★ 페이드 래퍼 */}
       <motion.div
         animate={{ opacity: visible ? 1 : 0 }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: 0.15 }}
         style={{
           border: `1px solid ${isEmergency ? "#ff0000" : `${modelColor}44`}`,
           borderRadius: 10,
           boxShadow: isEmergency ? "0 0 20px rgba(255,0,0,0.3)" : modelGlow,
           padding: "10px",
           transition: "box-shadow 0.3s, border 0.3s",
+          position: "relative",
         }}>
+
+        {/* ★ 전환 중 오버레이 스피너 */}
+        {switchLoading && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(13,13,26,0.7)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5 }}>
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              style={{ fontSize: 24 }}>⚙️</motion.div>
+          </div>
+        )}
 
         {/* 시나리오 */}
         <div style={{ background: isEmergency ? "#1a0000" : data.is_bad_news ? "#1a0505" : "#05101a", border: `1px solid ${isEmergency ? "#ff0000" : data.is_bad_news ? "#ff3b3b" : `${modelColor}66`}`, borderRadius: 8, padding: "12px 16px", marginBottom: 10, fontSize: 15, color: isEmergency ? "#ff6666" : data.is_bad_news ? "#ff9999" : "#93c5fd" }}>
@@ -708,7 +741,7 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
           )}
         </div>
 
-        {/* GPT 기술적 지표 표시 */}
+        {/* GPT 기술적 지표 */}
         {!isGemini && data.indicators && (
           <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
             {[
@@ -727,7 +760,7 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
 
         {/* 타점 박스 */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-          <div style={{ background: "#0d2d0d", borderRadius: 8, padding: "10px 14px", textAlign: "center", transition: "all 0.3s", ...buy1Highlight, border: buy1Highlight.border || `1px solid #22c55e` }}>
+          <div style={{ background: "#0d2d0d", borderRadius: 8, padding: "10px 14px", textAlign: "center", transition: "all 0.3s", ...buy1Highlight, border: buy1Highlight.border || "1px solid #22c55e" }}>
             <div style={{ color: "#aaa", fontSize: 12 }}>{buy1Label}</div>
             <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy1)}</div>
             <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -3%~" : "MA/볼밴 지지"}</div>
