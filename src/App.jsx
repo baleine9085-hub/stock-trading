@@ -249,13 +249,16 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
         rightOffset:    10,
         barSpacing:     6,
         tickMarkFormatter: (ts) => {
-          const d   = new Date(ts * 1000)
-          const h   = String(d.getHours()).padStart(2, "0")
-          const m   = String(d.getMinutes()).padStart(2, "0")
-          const mo  = String(d.getMonth() + 1).padStart(2, "0")
-          const day = String(d.getDate()).padStart(2, "0")
-          return (h === "00" && m === "00") ? `${mo}/${day}` : `${h}:${m}`
-        },
+  const d   = new Date(ts * 1000)
+  const h   = String(d.getHours()).padStart(2, "0")
+  const m   = String(d.getMinutes()).padStart(2, "0")
+  const mo  = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  // ★ 자정(00:00)이거나 09:00이면 날짜 표시
+  if (h === "00" && m === "00") return `${mo}/${day}`
+  if (h === "09" && m === "00") return `${mo}/${day}`
+  return `${h}:${m}`
+},
       },
       rightPriceScale: { borderColor: "#1a1a2e" },
       leftPriceScale:  { visible: false, borderColor: "#2a2a3a" },
