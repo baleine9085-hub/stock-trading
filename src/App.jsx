@@ -1013,14 +1013,14 @@ function StrategyChatRoom({ macro, newsSentiment, krStocks, usStocks }) {
     <>
       <motion.button whileHover={{ scale: 1.05 }} onClick={() => setOpen(!open)}
         style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, background: open ? "#1a1a2e" : "#6366f1", border: "1px solid #6366f1", borderRadius: 50, width: 52, height: 52, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, boxShadow: "0 0 20px rgba(99,102,241,0.5)" }}>
-        {open ? "✕" : "🧠"}
+        {open ? "✕" : "🤖"}
       </motion.button>
       <AnimatePresence>
         {open && (
           <motion.div initial={{ opacity: 0, y: 40, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 40, scale: 0.95 }} transition={{ duration: 0.2 }}
             style={{ position: "fixed", bottom: 88, right: 24, zIndex: 999, width: 360, height: 480, background: "#0d0d1a", border: "1px solid #6366f1", borderRadius: 14, display: "flex", flexDirection: "column", boxShadow: "0 0 30px rgba(99,102,241,0.3)", fontFamily: "monospace" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a2e", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 16 }}>🧠</span>
+              <span style={{ fontSize: 16 }}>🤖</span>
               <div>
                 <div style={{ color: "#6366f1", fontWeight: "bold", fontSize: 13 }}>전략 참모실</div>
                 <div style={{ color: "#555", fontSize: 10 }}>실시간 시장 데이터 연동 중</div>
