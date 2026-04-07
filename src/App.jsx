@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { createChart, CandlestickSeries, LineSeries } from "lightweight-charts"
 
 const API_BASE = "https://stock-dashboard-production-19d7.up.railway.app"
-const KST_OFFSET = 9 * 3600  // 프론트에서만 KST 변환
+const KST_OFFSET = 9 * 3600
 
 const TIMEFRAMES = [
   { label: "1분",   interval: "1m",  period: "1d"  },
@@ -38,7 +38,6 @@ function getSentimentLabel(score) {
   return "극단적 탐욕 🤑"
 }
 
-// ── 마켓 배지 ─────────────────────────────────────────────────
 function MarketBadge({ status }) {
   const config = {
     "정규":        { color: "#22c55e", bg: "#0d2d0d",  label: "정규"    },
@@ -221,9 +220,9 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
   const seriesRef        = useRef(null)
   const compareSeriesRef = useRef(null)
   const lastCandleRef    = useRef(null)
-  const sessionRef       = useRef("")        // ★ 세션 전환 감지
-  const fitTimerRef      = useRef(null)      // ★ fitContent 타이머
-  const holdTimerRef     = useRef(null)      // ★ 횡보 캔들 타이머
+  const sessionRef       = useRef("")
+  const fitTimerRef      = useRef(null)
+  const holdTimerRef     = useRef(null)
 
   const [activeIdx, setActiveIdx]   = useState(1)
   const [compareIdx, setCompareIdx] = useState(0)
@@ -232,10 +231,8 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
   const [syncing, setSyncing]       = useState(false)
   const tf = TIMEFRAMES[activeIdx]
 
-  // ── 프리/애프터 세션 여부 ─────────────────────────────────────
   const isExtSession = ["프리마켓", "애프터마켓", "호가접수", "장전시간외", "시간외단일가"].includes(marketStatus)
 
-  // ── 차트 초기화 ──────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, {
@@ -249,16 +246,15 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
         rightOffset:    10,
         barSpacing:     6,
         tickMarkFormatter: (ts) => {
-  const d   = new Date(ts * 1000)
-  const h   = String(d.getHours()).padStart(2, "0")
-  const m   = String(d.getMinutes()).padStart(2, "0")
-  const mo  = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  // ★ 자정(00:00)이거나 09:00이면 날짜 표시
-  if (h === "00" && m === "00") return `${mo}/${day}`
-  if (h === "09" && m === "00") return `${mo}/${day}`
-  return `${h}:${m}`
-},
+          const d   = new Date(ts * 1000)
+          const h   = String(d.getHours()).padStart(2, "0")
+          const m   = String(d.getMinutes()).padStart(2, "0")
+          const mo  = String(d.getMonth() + 1).padStart(2, "0")
+          const day = String(d.getDate()).padStart(2, "0")
+          if (h === "00" && m === "00") return `${mo}/${day}`
+          if (h === "09" && m === "00") return `${mo}/${day}`
+          return `${h}:${m}`
+        },
       },
       rightPriceScale: { borderColor: "#1a1a2e" },
       leftPriceScale:  { visible: false, borderColor: "#2a2a3a" },
@@ -290,7 +286,6 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
     }
   }, [])
 
-  // ── 데이터 로딩 ──────────────────────────────────────────────
   const loadData = useCallback(() => {
     if (!seriesRef.current) return
     setLoading(true); setError(null)
@@ -307,11 +302,8 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
             seen.add(d.time); return true
           })
           .sort((a, b) => a.time - b.time)
-
         seriesRef.current.setData(formatted)
-        if (formatted.length > 0) {
-          lastCandleRef.current = { ...formatted[formatted.length - 1] }
-        }
+        if (formatted.length > 0) lastCandleRef.current = { ...formatted[formatted.length - 1] }
         chartRef.current?.timeScale().fitContent()
         setLoading(false)
       })
@@ -320,13 +312,10 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
 
   useEffect(() => { loadData() }, [loadData])
 
-  // ── ★ 세션 전환 감지 → 차트 리셋 후 재로드 ─────────────────
   useEffect(() => {
     if (!marketStatus) return
     const prev = sessionRef.current
     const curr = marketStatus
-
-    // 세션이 바뀌었을 때만 리셋
     if (prev && prev !== curr) {
       const sessionGroup = (s) => {
         if (["정규"].includes(s)) return "regular"
@@ -335,7 +324,6 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
         return "off"
       }
       if (sessionGroup(prev) !== sessionGroup(curr)) {
-        console.log(`🔄 세션 전환: ${prev} → ${curr} → 차트 리셋`)
         if (seriesRef.current) {
           try { seriesRef.current.setData([]) } catch {}
           lastCandleRef.current = null
@@ -346,7 +334,6 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
     sessionRef.current = curr
   }, [marketStatus])
 
-  // ── ★ 프리/애프터 세션: 5초마다 fitContent 자동 실행 ────────
   useEffect(() => {
     if (fitTimerRef.current) clearInterval(fitTimerRef.current)
     if (isExtSession && chartRef.current) {
@@ -357,87 +344,43 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
     return () => { if (fitTimerRef.current) clearInterval(fitTimerRef.current) }
   }, [isExtSession])
 
-  // ── ★ 24시간 횡보 캔들 — 마지막 체결 이후 시간축 유지 ───────
   useEffect(() => {
     if (holdTimerRef.current) clearInterval(holdTimerRef.current)
     holdTimerRef.current = setInterval(() => {
       if (!seriesRef.current || !lastCandleRef.current) return
-      if (tf.interval === "1d") return  // 일봉은 불필요
-
+      if (tf.interval === "1d") return
       const intervalSec = tf.interval === "1m" ? 60 : tf.interval === "5m" ? 300 : 3600
       const nowTs    = Math.floor(Date.now() / 1000)
       const candleTs = Math.floor(nowTs / intervalSec) * intervalSec
       const last     = lastCandleRef.current
-
-      // 마지막 캔들이 현재 구간보다 오래됐으면 횡보 캔들 추가
       if (candleTs > last.time) {
-        const holdCandle = {
-          time:  candleTs,
-          open:  last.close,
-          high:  last.close,
-          low:   last.close,
-          close: last.close,
-        }
-        try {
-          seriesRef.current.update(holdCandle)
-          lastCandleRef.current = holdCandle
-        } catch {}
+        const holdCandle = { time: candleTs, open: last.close, high: last.close, low: last.close, close: last.close }
+        try { seriesRef.current.update(holdCandle); lastCandleRef.current = holdCandle } catch {}
       }
-    }, 10000)  // 10초마다 체크
-
+    }, 10000)
     return () => { if (holdTimerRef.current) clearInterval(holdTimerRef.current) }
   }, [activeIdx])
 
-  // ── ★ livePrice → Tick by Tick + 프리장 시간 보정 ───────────
   useEffect(() => {
     if (!seriesRef.current || !livePrice || tf.interval === "1d") return
-
     const intervalSec = tf.interval === "1m" ? 60 : tf.interval === "5m" ? 300 : 3600
-    const nowTs       = Math.floor(Date.now() / 1000)
-    const candleTs    = Math.floor(nowTs / intervalSec) * intervalSec
-    const last        = lastCandleRef.current
-
-    // ★ 프리/애프터: 서버 시간이 5분 이상 뒤쳐지면 현재 시각으로 강제 보정
-    let targetTs = candleTs
+    const nowTs    = Math.floor(Date.now() / 1000)
+    const candleTs = Math.floor(nowTs / intervalSec) * intervalSec
+    const last     = lastCandleRef.current
+    let targetTs   = candleTs
     if (isExtSession && last) {
       const drift = Math.abs(nowTs - last.time)
-      if (drift > 300) {
-        targetTs = candleTs  // 현재 시스템 시각 기준 강제 사용
-        console.log(`⚡ 프리장 시간 보정: drift=${drift}s → ${new Date(targetTs*1000).toLocaleTimeString()}`)
-      }
+      if (drift > 300) targetTs = candleTs
     }
-
     if (!last || targetTs > last.time) {
-      // 새 캔들 구간
-      const newCandle = {
-        time:  targetTs,
-        open:  livePrice,
-        high:  livePrice,
-        low:   livePrice,
-        close: livePrice,
-      }
-      try {
-        seriesRef.current.update(newCandle)
-        lastCandleRef.current = newCandle
-        chartRef.current?.timeScale().scrollToRealTime()
-      } catch {}
+      const newCandle = { time: targetTs, open: livePrice, high: livePrice, low: livePrice, close: livePrice }
+      try { seriesRef.current.update(newCandle); lastCandleRef.current = newCandle; chartRef.current?.timeScale().scrollToRealTime() } catch {}
     } else {
-      // 같은 캔들 구간: Tick by Tick 업데이트
-      const updated = {
-        time:  last.time,
-        open:  last.open,
-        high:  Math.max(last.high, livePrice),
-        low:   Math.min(last.low,  livePrice),
-        close: livePrice,
-      }
-      try {
-        seriesRef.current.update(updated)
-        lastCandleRef.current = updated
-      } catch {}
+      const updated = { time: last.time, open: last.open, high: Math.max(last.high, livePrice), low: Math.min(last.low, livePrice), close: livePrice }
+      try { seriesRef.current.update(updated); lastCandleRef.current = updated } catch {}
     }
   }, [livePrice])
 
-  // ── 비교선 ───────────────────────────────────────────────────
   useEffect(() => {
     if (!chartRef.current) return
     if (compareSeriesRef.current) {
@@ -460,9 +403,8 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
         const base = pts[0].value
         const norm = pts.map(d => ({ time: d.time, value: parseFloat(((d.value / base - 1) * 100).toFixed(3)) }))
         const line = chartRef.current.addSeries(LineSeries, {
-          color: opt.color, lineWidth: 1.5,
-          priceScaleId: "left", lastValueVisible: true,
-          priceLineVisible: false, title: opt.label,
+          color: opt.color, lineWidth: 1.5, priceScaleId: "left",
+          lastValueVisible: true, priceLineVisible: false, title: opt.label,
         })
         chartRef.current.priceScale("left").applyOptions({ visible: true, borderColor: "#2a2a3a", scaleMargins: { top: 0.1, bottom: 0.1 } })
         line.setData(norm)
@@ -470,10 +412,8 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
       }).catch(() => {})
   }, [compareIdx, activeIdx, ticker])
 
-  // ── 동기화 버튼 ──────────────────────────────────────────────
   const handleSync = (e) => {
-    e.stopPropagation()
-    setSyncing(true)
+    e.stopPropagation(); setSyncing(true)
     lastCandleRef.current = null
     if (seriesRef.current) { try { seriesRef.current.setData([]) } catch {} }
     loadData()
@@ -481,8 +421,7 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
   }
 
   const handleTf = (e, idx) => {
-    e.stopPropagation()
-    setActiveIdx(idx)
+    e.stopPropagation(); setActiveIdx(idx)
     onTimeframeChange?.(TIMEFRAMES[idx].interval)
   }
 
@@ -497,15 +436,11 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
             {COMPARE_OPTIONS.map((opt, i) => <option key={i} value={i}>{opt.label}</option>)}
           </select>
           <button onClick={handleSync} style={{
-            background: syncing ? "#1a2d0d" : "#0d0d1a",
-            color:      syncing ? "#22c55e" : "#555",
+            background: syncing ? "#1a2d0d" : "#0d0d1a", color: syncing ? "#22c55e" : "#555",
             border: `1px solid ${syncing ? "#22c55e" : "#2a2a3a"}`,
             borderRadius: 4, padding: "4px 8px", fontSize: 11,
             cursor: "pointer", fontFamily: "monospace", transition: "all 0.2s",
-          }}>
-            {syncing ? "⏳ 동기화 중..." : "🔄 동기화"}
-          </button>
-          {/* ★ 프리/애프터 세션 표시 */}
+          }}>{syncing ? "⏳ 동기화 중..." : "🔄 동기화"}</button>
           {isExtSession && (
             <motion.span animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1.5, repeat: Infinity }}
               style={{ fontSize: 10, color: "#a78bfa", border: "1px solid #a78bfa44", borderRadius: 3, padding: "2px 6px" }}>
@@ -518,14 +453,11 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
             const isActive = i === activeIdx
             return (
               <button key={t.label} onClick={e => handleTf(e, i)} style={{
-                background: isActive ? "#6366f1" : "#0d0d1a",
-                color:      isActive ? "#fff"    : "#555",
+                background: isActive ? "#6366f1" : "#0d0d1a", color: isActive ? "#fff" : "#555",
                 border: `1px solid ${isActive ? "#6366f1" : "#2a2a3a"}`,
                 borderRadius: 4, padding: "4px 12px", fontSize: 12,
-                cursor: "pointer", fontFamily: "monospace",
-                fontWeight: isActive ? "bold" : "normal",
-                transition: "all 0.15s",
-                boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
+                cursor: "pointer", fontFamily: "monospace", fontWeight: isActive ? "bold" : "normal",
+                transition: "all 0.15s", boxShadow: isActive ? "0 0 8px rgba(99,102,241,0.5)" : "none",
               }}>{t.label}</button>
             )
           })}
@@ -554,19 +486,18 @@ function CandleChart({ ticker, isKR = false, onTimeframeChange, livePrice, marke
 }
 
 function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe = "5m" }) {
-  const [selectedAI, setSelectedAI]     = useState("gemini")
-  const [geminiData, setGeminiData]     = useState(cachedRec || null)
-  const [gptData, setGptData]           = useState(null)
+  const [selectedAI, setSelectedAI]       = useState("gemini")
+  const [geminiData, setGeminiData]       = useState(cachedRec || null)
+  const [gptData, setGptData]             = useState(null)
   const [geminiLoading, setGeminiLoading] = useState(!cachedRec)
-  const [gptLoading, setGptLoading]     = useState(false)
-  const [switchLoading, setSwitchLoading] = useState(false)  // ★ 전환 중 스피너
-  const [visible, setVisible]           = useState(true)
+  const [gptLoading, setGptLoading]       = useState(false)
+  const [switchLoading, setSwitchLoading] = useState(false)
+  const [visible, setVisible]             = useState(true)
 
   const isMinute = timeframe === "1m" || timeframe === "5m"
   const isHourly = timeframe === "60m"
   const isDaily  = timeframe === "1d"
 
-  // Gemini 로딩
   useEffect(() => {
     if (cachedRec) { setGeminiData(cachedRec); setGeminiLoading(false); return }
     setGeminiLoading(true)
@@ -576,7 +507,6 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
       .catch(() => setGeminiLoading(false))
   }, [ticker, cachedRec])
 
-  // GPT 로딩
   useEffect(() => {
     setGptLoading(true)
     fetch(`${API_BASE}/api/recommend-tech/${ticker}`)
@@ -585,48 +515,32 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
       .catch(() => setGptLoading(false))
   }, [ticker])
 
-  // ★ Keep-Previous: 전환 시 기존 데이터 유지하며 스피너만 표시
   const switchAI = (model) => {
     if (model === selectedAI) return
-    const targetData = model === "gemini" ? geminiData : gptData
+    const targetData    = model === "gemini" ? geminiData : gptData
     const targetLoading = model === "gemini" ? geminiLoading : gptLoading
-
-    setSelectedAI(model)
-    setVisible(false)
+    setSelectedAI(model); setVisible(false)
     setTimeout(() => setVisible(true), 150)
-
-    // 타겟 데이터가 없으면 즉시 로딩
     if (!targetData && !targetLoading) {
       setSwitchLoading(true)
-      const url = model === "gemini"
-        ? `${API_BASE}/api/recommend/${ticker}`
-        : `${API_BASE}/api/recommend-tech/${ticker}`
+      const url = model === "gemini" ? `${API_BASE}/api/recommend/${ticker}` : `${API_BASE}/api/recommend-tech/${ticker}`
       fetch(url).then(r => r.json()).then(d => {
-        if (!d.error) {
-          if (model === "gemini") setGeminiData(d)
-          else setGptData(d)
-        }
+        if (!d.error) { if (model === "gemini") setGeminiData(d); else setGptData(d) }
         setSwitchLoading(false)
       }).catch(() => setSwitchLoading(false))
     }
   }
 
-  const isGemini = selectedAI === "gemini"
-  // ★ Keep-Previous: 새 데이터 없으면 이전 모델 데이터 임시 표시
-  const data = isGemini
-    ? (geminiData || gptData)
-    : (gptData || geminiData)
+  const isGemini         = selectedAI === "gemini"
+  const data             = isGemini ? (geminiData || gptData) : (gptData || geminiData)
   const isLoadingCurrent = isGemini ? geminiLoading : gptLoading
+  const isConsensus      = geminiData && gptData && !geminiData.error && !gptData.error &&
+    Math.abs((geminiData.buy1 - gptData.buy1) / geminiData.buy1) < 0.02
 
   const fmt = (v) => {
     if (v === undefined || v === null || isNaN(Number(v))) return "-"
     return currency === "KRW" ? `₩${Number(v).toLocaleString()}` : `$${Number(v).toFixed(2)}`
   }
-
-  // ★ AI 합의 여부
-  const isConsensus = geminiData && gptData && !geminiData.error && !gptData.error &&
-    Math.abs((geminiData.buy1 - gptData.buy1) / geminiData.buy1) < 0.02
-
   const getTimestamp = () => {
     if (!data?.updated_at) return null
     const diff = Math.floor((Date.now() - new Date(data.updated_at).getTime()) / 60000)
@@ -645,11 +559,8 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
   if (!data || data.error) return null
 
   const isEmergency = data.is_emergency || isGlobalEmergency
-  const modelColor = isGemini ? "#4285f4" : "#10a37f"
-  const modelGlow  = isGemini
-    ? "0 0 16px rgba(66,133,244,0.35)"
-    : "0 0 16px rgba(16,163,127,0.35)"
-
+  const modelColor  = isGemini ? "#4285f4" : "#10a37f"
+  const modelGlow   = isGemini ? "0 0 16px rgba(66,133,244,0.35)" : "0 0 16px rgba(16,163,127,0.35)"
   const buy1Highlight = isMinute ? { boxShadow: "0 0 14px rgba(34,197,94,0.55)", border: "1px solid #22c55e", transform: "scale(1.03)" } : {}
   const buy3Highlight = isDaily  ? { boxShadow: "0 0 14px rgba(249,115,22,0.6)",  border: "1px solid #f97316", transform: "scale(1.03)" } : {}
   const buy1Label = isMinute ? "🔍 1차 정찰대 ★단기" : isHourly ? "🔍 1차 정찰대 (중기)" : "🔍 1차 정찰대 (20%)"
@@ -658,90 +569,56 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
 
   return (
     <div style={{ marginTop: 12 }}>
-      {/* ★ AI 모델 토글 */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ color: "#555", fontSize: 11 }}>참모 선택:</span>
-
         <button onClick={() => switchAI("gemini")} style={{
-          background: isGemini ? "#0d1a2d" : "#0d0d1a",
-          color: isGemini ? "#4285f4" : "#555",
+          background: isGemini ? "#0d1a2d" : "#0d0d1a", color: isGemini ? "#4285f4" : "#555",
           border: `1px solid ${isGemini ? "#4285f4" : "#2a2a3a"}`,
-          borderRadius: 6, padding: "4px 12px", fontSize: 12,
-          cursor: "pointer", fontFamily: "monospace",
-          fontWeight: isGemini ? "bold" : "normal",
-          boxShadow: isGemini ? "0 0 10px rgba(66,133,244,0.4)" : "none",
-          transition: "all 0.2s",
+          borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer",
+          fontFamily: "monospace", fontWeight: isGemini ? "bold" : "normal",
+          boxShadow: isGemini ? "0 0 10px rgba(66,133,244,0.4)" : "none", transition: "all 0.2s",
         }}>🔵 Gemini</button>
-
         <button onClick={() => switchAI("gpt")} style={{
-          background: !isGemini ? "#0d1a14" : "#0d0d1a",
-          color: !isGemini ? "#10a37f" : "#555",
+          background: !isGemini ? "#0d1a14" : "#0d0d1a", color: !isGemini ? "#10a37f" : "#555",
           border: `1px solid ${!isGemini ? "#10a37f" : "#2a2a3a"}`,
-          borderRadius: 6, padding: "4px 12px", fontSize: 12,
-          cursor: "pointer", fontFamily: "monospace",
-          fontWeight: !isGemini ? "bold" : "normal",
-          boxShadow: !isGemini ? "0 0 10px rgba(16,163,127,0.4)" : "none",
-          transition: "all 0.2s",
+          borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer",
+          fontFamily: "monospace", fontWeight: !isGemini ? "bold" : "normal",
+          boxShadow: !isGemini ? "0 0 10px rgba(16,163,127,0.4)" : "none", transition: "all 0.2s",
         }}>🟢 GPT-4o</button>
-
         {isConsensus && (
           <motion.span initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
             style={{ background: "#1a1a0d", color: "#ffd700", border: "1px solid #ffd70066", fontSize: 10, padding: "2px 8px", borderRadius: 10, fontWeight: "bold" }}>
             ✨ AI 합의 완료
           </motion.span>
         )}
-
-        {/* ★ 전환 중 스피너 */}
         {(switchLoading || (isLoadingCurrent && !data)) && (
           <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 0.8, repeat: Infinity }}
             style={{ color: modelColor, fontSize: 10 }}>⚙️ 분석 중...</motion.span>
         )}
-
-        {/* ★ GPT 데이터 없을 때 경고 */}
         {!isGemini && !gptData && !gptLoading && (
           <span style={{ color: "#facc15", fontSize: 10 }}>⏳ 데이터 수신 대기 중</span>
         )}
-
         <span style={{ marginLeft: "auto", color: modelColor, fontSize: 10, opacity: 0.7 }}>
           {isGemini ? "시황 중심" : "기술적 지표 중심"}
-          {/* ★ 이전 모델 데이터 임시 표시 중 안내 */}
           {isGemini && !geminiData && gptData && <span style={{ color: "#facc15" }}> (이전 데이터)</span>}
           {!isGemini && !gptData && geminiData && <span style={{ color: "#facc15" }}> (이전 데이터)</span>}
         </span>
       </div>
-
       {tfHint && <div style={{ fontSize: 12, color: "#6366f1", marginBottom: 6, textAlign: "right", opacity: 0.8 }}>📐 {tfHint}</div>}
-
-      {/* ★ 페이드 래퍼 */}
       <motion.div
-        animate={{ opacity: visible ? 1 : 0 }}
-        transition={{ duration: 0.15 }}
-        style={{
-          border: `1px solid ${isEmergency ? "#ff0000" : `${modelColor}44`}`,
-          borderRadius: 10,
-          boxShadow: isEmergency ? "0 0 20px rgba(255,0,0,0.3)" : modelGlow,
-          padding: "10px",
-          transition: "box-shadow 0.3s, border 0.3s",
-          position: "relative",
-        }}>
-
-        {/* ★ 전환 중 오버레이 스피너 */}
+        animate={{ opacity: visible ? 1 : 0 }} transition={{ duration: 0.15 }}
+        style={{ border: `1px solid ${isEmergency ? "#ff0000" : `${modelColor}44`}`, borderRadius: 10, boxShadow: isEmergency ? "0 0 20px rgba(255,0,0,0.3)" : modelGlow, padding: "10px", transition: "box-shadow 0.3s, border 0.3s", position: "relative" }}>
         {switchLoading && (
           <div style={{ position: "absolute", inset: 0, background: "rgba(13,13,26,0.7)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5 }}>
-            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              style={{ fontSize: 24 }}>⚙️</motion.div>
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} style={{ fontSize: 24 }}>⚙️</motion.div>
           </div>
         )}
-
-        {/* 시나리오 */}
         <div style={{ background: isEmergency ? "#1a0000" : data.is_bad_news ? "#1a0505" : "#05101a", border: `1px solid ${isEmergency ? "#ff0000" : data.is_bad_news ? "#ff3b3b" : `${modelColor}66`}`, borderRadius: 8, padding: "12px 16px", marginBottom: 10, fontSize: 15, color: isEmergency ? "#ff6666" : data.is_bad_news ? "#ff9999" : "#93c5fd" }}>
           🎯 {data.scenario}
           {data.is_bad_news && data.discount_pct > 0 && (
             <span style={{ color: "#ff3b3b", marginLeft: 8, fontWeight: "bold" }}>[{data.discount_pct}% 벙커 하향 적용됨]</span>
           )}
         </div>
-
-        {/* GPT 기술적 지표 */}
         {!isGemini && data.indicators && (
           <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
             {[
@@ -757,42 +634,37 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
             ))}
           </div>
         )}
-
-        {/* 타점 박스 */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
           <div style={{ background: "#0d2d0d", borderRadius: 8, padding: "10px 14px", textAlign: "center", transition: "all 0.3s", ...buy1Highlight, border: buy1Highlight.border || "1px solid #22c55e" }}>
             <div style={{ color: "#aaa", fontSize: 12 }}>{buy1Label}</div>
             <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy1)}</div>
-            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -3%~" : "MA/볼밴 지지"}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -7%~" : "MA/볼밴 지지"}</div>
             {isMinute && <div style={{ color: "#22c55e", fontSize: 11, marginTop: 2 }}>▶ 분봉 주목</div>}
           </div>
           <div style={{ background: "#1a2d0d", border: "1px solid #84cc16", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
             <div style={{ color: "#aaa", fontSize: 12 }}>⚔️ 2차 본대 (30%)</div>
             <div style={{ color: "#84cc16", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy2)}</div>
-            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -7%~" : "MA60 지지"}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -15%~" : "MA60 지지"}</div>
           </div>
           <div style={{ background: "#2d1a0d", borderRadius: 8, padding: "10px 14px", textAlign: "center", transition: "all 0.3s", ...buy3Highlight, border: buy3Highlight.border || "1px solid #f97316" }}>
             <div style={{ color: "#aaa", fontSize: 12 }}>{buy3Label}</div>
             <div style={{ color: "#f97316", fontWeight: "bold", fontSize: 18 }}>{fmt(data.buy3)}</div>
-            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -12%~" : "60일 저점"}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "현재가 -30%~" : "60일 저점"}</div>
             {isDaily && <div style={{ color: "#f97316", fontSize: 11, marginTop: 2 }}>▶ 일봉 주목</div>}
           </div>
         </div>
-
-        {/* 매도/손절 */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
           <div style={{ background: "#0d0d2d", border: `1px solid ${modelColor}88`, borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
             <div style={{ color: "#aaa", fontSize: 12 }}>🚀 매도 목표가</div>
             <div style={{ color: modelColor, fontWeight: "bold", fontSize: 18 }}>{fmt(data.sell)}</div>
-            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "+8%" : "볼밴 상단"}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "+10%~" : "볼밴 상단"}</div>
           </div>
           <div style={{ background: "#2d0d0d", border: "1px solid #ef4444", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
             <div style={{ color: "#aaa", fontSize: 12 }}>💀 손절가</div>
             <div style={{ color: "#ef4444", fontWeight: "bold", fontSize: 18 }}>{fmt(data.stop_loss)}</div>
-            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "-15%" : "볼밴 하단-3%"}</div>
+            <div style={{ color: "#666", fontSize: 12 }}>{isGemini ? "3차 -7%" : "볼밴 하단-3%"}</div>
           </div>
         </div>
-
         {getTimestamp() && (
           <div style={{ marginTop: 6, textAlign: "right", fontSize: 11, color: data.is_emergency ? "#ff3b3b" : modelColor, opacity: 0.6 }}>
             {isGemini ? "🔵 Gemini" : "🟢 GPT-4o"} · {getTimestamp()}
@@ -1061,7 +933,151 @@ function StockCard({ stock, prevPrice, cachedRec, isEmergency, newsSentiment }) 
   )
 }
 
-// ── 🚀 App 루트 — WebSocket 헬스체크 + REST 폴링 폴백 ────────
+// ── 🧠 전략 참모 채팅창 ──────────────────────────────────────
+function StrategyChatRoom({ macro, newsSentiment, krStocks, usStocks }) {
+  const [messages, setMessages] = useState([
+    { role: "assistant", content: "보스, 전략 참모실 온라인입니다. 현재 시장 데이터를 분석 중입니다. 질문하십시오." }
+  ])
+  const [input, setInput]     = useState("")
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen]       = useState(false)
+  const bottomRef = useRef(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
+  const buildContext = () => {
+    const vix      = macro["^VIX"]?.price ?? "N/A"
+    const nasdaq   = macro["^IXIC"]?.price ?? "N/A"
+    const kospi    = macro["^KS11"]?.price ?? "N/A"
+    const oil      = macro["CL=F"]?.price ?? "N/A"
+    const gold     = macro["GC=F"]?.price ?? "N/A"
+    const sent     = newsSentiment?.score ?? "N/A"
+    const sentLabel = newsSentiment?.label ?? ""
+    const risks    = newsSentiment?.active_risks?.join(", ") || "없음"
+    const krSummary = (krStocks || []).slice(0, 3).map(s =>
+      `${s.name} ₩${s.price?.toLocaleString()} (${s.change_pct > 0 ? "+" : ""}${s.change_pct?.toFixed(2)}%)`
+    ).join(", ")
+    const usSummary = (usStocks || []).slice(0, 3).map(s =>
+      `${s.name} $${s.price?.toFixed(2)} (${s.change_pct > 0 ? "+" : ""}${s.change_pct?.toFixed(2)}%)`
+    ).join(", ")
+    return `당신은 AI 주식 터미널의 전략 참모입니다. 보스(투자자)에게 현재 시장 데이터를 기반으로 전술적 조언을 제공합니다.
+
+현재 실시간 시장 데이터:
+- VIX(공포지수): ${vix}
+- 나스닥: ${nasdaq} | 코스피: ${kospi}
+- WTI유가: $${oil} | 금: $${gold}
+- AI 뉴스 심리 점수: ${sent}/100 (${sentLabel})
+- 활성 위험 키워드 메모리: ${risks}
+- 국내 주요 종목: ${krSummary}
+- 해외 주요 종목: ${usSummary}
+
+답변 규칙:
+1. "보스,"로 시작
+2. 반드시 위 데이터 수치를 근거로 답변
+3. 구체적 전술 조언 (매수/매도/대기 여부)
+4. 2~4문장으로 간결하게
+5. 한국어로 답변`
+  }
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return
+    const userMsg = input.trim()
+    setInput("")
+    setMessages(prev => [...prev, { role: "user", content: userMsg }])
+    setLoading(true)
+    try {
+      const systemPrompt = buildContext()
+      const history = messages.slice(-6).map(m => ({ role: m.role, content: m.content }))
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [...history, { role: "user", content: userMsg }],
+        })
+      })
+      const data = await res.json()
+      const reply = data.content?.[0]?.text || "데이터 분석 중 오류가 발생했습니다."
+      setMessages(prev => [...prev, { role: "assistant", content: reply }])
+    } catch {
+      setMessages(prev => [...prev, { role: "assistant", content: "통신 오류. 잠시 후 다시 시도하십시오." }])
+    }
+    setLoading(false)
+  }
+
+  return (
+    <>
+      <motion.button whileHover={{ scale: 1.05 }} onClick={() => setOpen(!open)}
+        style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, background: open ? "#1a1a2e" : "#6366f1", border: "1px solid #6366f1", borderRadius: 50, width: 52, height: 52, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, boxShadow: "0 0 20px rgba(99,102,241,0.5)" }}>
+        {open ? "✕" : "🧠"}
+      </motion.button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, y: 40, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 40, scale: 0.95 }} transition={{ duration: 0.2 }}
+            style={{ position: "fixed", bottom: 88, right: 24, zIndex: 999, width: 360, height: 480, background: "#0d0d1a", border: "1px solid #6366f1", borderRadius: 14, display: "flex", flexDirection: "column", boxShadow: "0 0 30px rgba(99,102,241,0.3)", fontFamily: "monospace" }}>
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid #1a1a2e", display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>🧠</span>
+              <div>
+                <div style={{ color: "#6366f1", fontWeight: "bold", fontSize: 13 }}>전략 참모실</div>
+                <div style={{ color: "#555", fontSize: 10 }}>실시간 시장 데이터 연동 중</div>
+              </div>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {macro["^VIX"]?.price && (
+                  <span style={{ fontSize: 10, color: macro["^VIX"].price > 25 ? "#ff3b3b" : "#facc15", border: `1px solid ${macro["^VIX"].price > 25 ? "#ff3b3b44" : "#facc1544"}`, borderRadius: 4, padding: "1px 5px" }}>
+                    VIX {macro["^VIX"].price}
+                  </span>
+                )}
+                {newsSentiment?.score !== undefined && (
+                  <span style={{ fontSize: 10, color: "#a78bfa", border: "1px solid #a78bfa44", borderRadius: 4, padding: "1px 5px" }}>
+                    심리 {newsSentiment.score}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {messages.map((msg, i) => (
+                <div key={i} style={{ display: "flex", flexDirection: msg.role === "user" ? "row-reverse" : "row", gap: 8, alignItems: "flex-start" }}>
+                  {msg.role === "assistant" && <span style={{ fontSize: 16, flexShrink: 0 }}>🧠</span>}
+                  <div style={{ background: msg.role === "user" ? "#1a1a3a" : "#0d1a2d", border: `1px solid ${msg.role === "user" ? "#6366f144" : "#3b82f644"}`, borderRadius: 10, padding: "8px 12px", color: msg.role === "user" ? "#c7d2fe" : "#93c5fd", fontSize: 12, lineHeight: 1.6, maxWidth: "85%" }}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 16 }}>🧠</span>
+                  <motion.div animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 0.8, repeat: Infinity }}
+                    style={{ background: "#0d1a2d", border: "1px solid #3b82f644", borderRadius: 10, padding: "8px 12px", color: "#555", fontSize: 12 }}>
+                    ⚙️ 분석 중...
+                  </motion.div>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+            <div style={{ padding: "6px 14px", display: "flex", gap: 4, flexWrap: "wrap", borderTop: "1px solid #1a1a2e" }}>
+              {["지금 매수해도 돼?", "VIX 분석해줘", "현재 최고 위험 요소는?"].map(q => (
+                <button key={q} onClick={() => setInput(q)} style={{ background: "#1a1a2e", border: "1px solid #2a2a3a", color: "#aaa", borderRadius: 12, padding: "3px 8px", fontSize: 10, cursor: "pointer", fontFamily: "monospace" }}>{q}</button>
+              ))}
+            </div>
+            <div style={{ padding: "10px 14px", borderTop: "1px solid #1a1a2e", display: "flex", gap: 8 }}>
+              <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()}
+                placeholder="전략 질문..."
+                style={{ flex: 1, background: "#0d0d2a", border: "1px solid #2a2a3a", borderRadius: 8, padding: "7px 12px", color: "#fff", fontSize: 12, fontFamily: "monospace", outline: "none" }} />
+              <button onClick={sendMessage} disabled={loading}
+                style={{ background: "#6366f1", border: "none", borderRadius: 8, padding: "7px 14px", color: "#fff", cursor: "pointer", fontSize: 12, fontFamily: "monospace", opacity: loading ? 0.5 : 1 }}>전송</button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  )
+}
+
+// ── 🚀 App ────────────────────────────────────────────────────
 export default function App() {
   const [krStocks, setKrStocks]               = useState([])
   const [usStocks, setUsStocks]               = useState([])
@@ -1081,28 +1097,26 @@ export default function App() {
   const [macroReport, setMacroReport]         = useState({})
   const [newsSentiment, setNewsSentiment]     = useState({})
   const [sectorFlow, setSectorFlow]           = useState([])
-  const [wsStatus, setWsStatus]               = useState("연결 중...")  // ★ WS 상태 표시
+  const [wsStatus, setWsStatus]               = useState("연결 중...")
 
   const prevKr         = useRef({})
   const prevUs         = useRef({})
   const ws             = useRef(null)
   const lastMsgTime    = useRef(Date.now())
   const morningWakeRef = useRef(null)
-  const pollingRef     = useRef(null)   // ★ REST 폴링 타이머
-  const healthRef      = useRef(null)   // ★ 헬스체크 타이머
+  const pollingRef     = useRef(null)
+  const healthRef      = useRef(null)
 
   const isExtremeFear     = fearGreed >= 70
   const isSentimentDanger = newsSentiment?.is_danger || newsSentiment?.score <= 30
   const showRedAlert      = isExtremeFear || isEmergency || isSentimentDanger
 
-  // ── REST 폴링 (WS 연결 실패 시 폴백) ─────────────────────────
   const startPolling = useCallback(() => {
     if (pollingRef.current) return
-    console.log("📡 REST 폴링 모드 전환")
     setWsStatus("REST 폴링")
     pollingRef.current = setInterval(async () => {
       try {
-        const [kr, us, macro, news, fg, ms, ns, sf] = await Promise.all([
+        const [kr, us, mac, nws, fg, ms, ns, sf] = await Promise.all([
           fetch(`${API_BASE}/api/kr-stocks`).then(r => r.json()),
           fetch(`${API_BASE}/api/us-stocks`).then(r => r.json()),
           fetch(`${API_BASE}/api/macro`).then(r => r.json()),
@@ -1114,10 +1128,9 @@ export default function App() {
         ])
         setKrStocks(prev => { prev.forEach(s => { prevKr.current[s.ticker] = s.price }); return kr })
         setUsStocks(prev => { prev.forEach(s => { prevUs.current[s.ticker] = s.price }); return us })
-        if (Object.keys(macro).length > 0) setMacro(macro)
-        if (news.length > 0) setNews(news)
-        setFearGreed(fg.score)
-        setMarketStatus(ms.status)
+        if (Object.keys(mac).length > 0) setMacro(mac)
+        if (nws.length > 0) setNews(nws)
+        setFearGreed(fg.score); setMarketStatus(ms.status)
         if (ns) setNewsSentiment(ns)
         if (sf?.length > 0) setSectorFlow(sf)
         setLastUpdated(new Date().toLocaleTimeString())
@@ -1129,17 +1142,10 @@ export default function App() {
     if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
   }, [])
 
-  // ── WebSocket 연결 ────────────────────────────────────────────
   const connect = useCallback(() => {
     if (ws.current?.readyState === WebSocket.OPEN) return
     ws.current = new WebSocket("wss://stock-dashboard-production-19d7.up.railway.app/ws/stocks")
-
-    ws.current.onopen = () => {
-      setWsStatus("🟢 실시간")
-      lastMsgTime.current = Date.now()
-      stopPolling()   // WS 연결 성공 → 폴링 중단
-      console.log("✅ WebSocket 연결됨")
-    }
+    ws.current.onopen = () => { setWsStatus("🟢 실시간"); lastMsgTime.current = Date.now(); stopPolling() }
     ws.current.onmessage = (e) => {
       lastMsgTime.current = Date.now()
       const data = JSON.parse(e.data)
@@ -1158,17 +1164,11 @@ export default function App() {
       if (data.sector_flow?.length > 0) setSectorFlow(data.sector_flow)
       setLastUpdated(new Date().toLocaleTimeString())
     }
-    ws.current.onclose = () => {
-      setWsStatus("🔴 재연결 중...")
-      console.log("WebSocket 끊김 → 3초 후 재연결")
-      setTimeout(connect, 3000)
-    }
+    ws.current.onclose = () => { setWsStatus("🔴 재연결 중..."); setTimeout(connect, 3000) }
     ws.current.onerror = () => ws.current?.close()
   }, [stopPolling])
 
-  // ── 초기 로딩 + 헬스체크 타이머 ─────────────────────────────
   useEffect(() => {
-    // 초기 REST 데이터
     Promise.all([
       fetch(`${API_BASE}/api/kr-stocks`).then(r => r.json()).then(setKrStocks),
       fetch(`${API_BASE}/api/us-stocks`).then(r => r.json()).then(setUsStocks),
@@ -1181,20 +1181,12 @@ export default function App() {
       fetch(`${API_BASE}/api/news-sentiment`).then(r => r.json()).then(setNewsSentiment),
       fetch(`${API_BASE}/api/sector-flow`).then(r => r.json()).then(setSectorFlow),
     ]).catch(console.error)
-
     connect()
-
-    // ★ 헬스체크: 10초 이상 메시지 없으면 폴링 전환 + 재연결
     healthRef.current = setInterval(() => {
       const gap = Date.now() - lastMsgTime.current
-
       if (gap > 10000 && ws.current?.readyState !== WebSocket.CONNECTING) {
-        console.warn(`⚠️ WS ${Math.floor(gap/1000)}초 무응답 → 재연결 + 폴링 전환`)
-        startPolling()
-        if (ws.current) ws.current.close()
+        startPolling(); if (ws.current) ws.current.close()
       }
-
-      // 아침 8시 KST 강제 재연결
       const now = new Date()
       const kstH = (now.getUTCHours() + 9) % 24
       const kstM = now.getUTCMinutes()
@@ -1202,16 +1194,10 @@ export default function App() {
       const isWeekday = now.getUTCDay() !== 0 && now.getUTCDay() !== 6
       if (isWeekday && kstH === 8 && kstM === 0 && morningWakeRef.current !== today) {
         morningWakeRef.current = today
-        console.log("🌅 08:00 KST 강제 재연결")
         if (ws.current) ws.current.close()
       }
     }, 5000)
-
-    return () => {
-      clearInterval(healthRef.current)
-      stopPolling()
-      ws.current?.close()
-    }
+    return () => { clearInterval(healthRef.current); stopPolling(); ws.current?.close() }
   }, [connect, startPolling, stopPolling])
 
   const handleSearch = async () => {
@@ -1232,9 +1218,7 @@ export default function App() {
         <motion.div animate={{ opacity: [0, 0.4, 0] }} transition={{ duration: 0.8, repeat: Infinity }}
           style={{ position: "fixed", inset: 0, border: "4px solid #ff0000", pointerEvents: "none", zIndex: 999 }} />
       )}
-
       {news.length > 0 && <NewsMarquee news={news} />}
-
       <AnimatePresence>
         {isSentimentDanger && !isEmergency && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
@@ -1243,7 +1227,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
       <AnimatePresence>
         {isEmergency && emergencyReason && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
@@ -1252,8 +1235,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* 헤더 */}
       <div style={{ background: "#13132a", padding: "12px 24px", borderBottom: "1px solid #222", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: "bold" }}>⚡ AI STOCK TERMINAL</div>
@@ -1270,8 +1251,6 @@ export default function App() {
         </div>
         <FearGreedMeter score={fearGreed} />
       </div>
-
-      {/* 매크로 + 섹터 수급 */}
       <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           <div style={{ display: "flex", gap: 10, flex: 1, flexWrap: "wrap" }}>
@@ -1280,8 +1259,6 @@ export default function App() {
           <SectorFlowTable sectorFlow={sectorFlow} />
         </div>
       </div>
-
-      {/* 검색 */}
       <div style={{ padding: "12px 24px", borderBottom: "1px solid #1a1a2e", display: "flex", gap: 8 }}>
         <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()}
           placeholder="🔍 티커로 검색 (예: AAPL, 005930, 272210)"
@@ -1291,14 +1268,11 @@ export default function App() {
           {searchLoading ? "검색 중..." : "검색"}
         </button>
       </div>
-
-      {/* 탭 */}
       <div style={{ display: "flex", borderBottom: "1px solid #222", paddingLeft: 24 }}>
         {[["kr","🇰🇷 국내"],["us","🇺🇸 해외"],["picks","🏆 Smart Picks"],["macro","🌐 매크로 분석"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{ padding: "13px 26px", background: "none", border: "none", color: tab === key ? "#fff" : "#666", borderBottom: tab === key ? "2px solid #ff3b3b" : "2px solid transparent", cursor: "pointer", fontSize: 15, fontWeight: tab === key ? "bold" : "normal", fontFamily: "monospace" }}>{label}</button>
         ))}
       </div>
-
       <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
         <AnimatePresence>
           {searchResult && (
@@ -1314,6 +1288,14 @@ export default function App() {
         {tab === "picks" && <SmartMoneyPicks picks={smartPicks} />}
         {tab === "macro" && <MacroReport report={macroReport} />}
       </div>
+
+      {/* ★ 전략 참모 채팅창 */}
+      <StrategyChatRoom
+        macro={macro}
+        newsSentiment={newsSentiment}
+        krStocks={krStocks}
+        usStocks={usStocks}
+      />
     </div>
   )
 }
