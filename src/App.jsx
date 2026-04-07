@@ -531,10 +531,27 @@ function SniperBox({ ticker, currency, cachedRec, isGlobalEmergency, timeframe =
     }
   }
 
-  const isGemini         = selectedAI === "gemini"
-  const data             = isGemini ? (geminiData || gptData) : (gptData || geminiData)
+ const isGemini         = selectedAI === "gemini"
+  const rawData          = isGemini ? (geminiData || gptData) : (gptData || geminiData)
   const isLoadingCurrent = isGemini ? geminiLoading : gptLoading
-  const isConsensus      = geminiData && gptData && !geminiData.error && !gptData.error &&
+
+  // ★ 타점 내림차순 정렬 + 역전 방지
+  const data = rawData ? (() => {
+    if (!rawData.buy1 || !rawData.buy2 || !rawData.buy3) return rawData
+    const current = rawData.current || 99999
+    let sorted = [rawData.buy1, rawData.buy2, rawData.buy3]
+      .filter(v => v < current)
+      .sort((a, b) => b - a)
+    let b1 = sorted[0] || current * 0.93
+    let b2 = sorted[1] || b1 * 0.90
+    let b3 = sorted[2] || b2 * 0.88
+    b1 = Math.min(b1, current * 0.97)
+    b2 = Math.min(b2, b1 * 0.90)
+    b3 = Math.min(b3, b2 * 0.88)
+    return { ...rawData, buy1: b1, buy2: b2, buy3: b3 }
+  })() : rawData
+
+  const isConsensus = geminiData && gptData && !geminiData.error && !gptData.error &&
     Math.abs((geminiData.buy1 - gptData.buy1) / geminiData.buy1) < 0.02
 
   const fmt = (v) => {
