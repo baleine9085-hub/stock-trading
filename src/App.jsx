@@ -998,30 +998,43 @@ function StrategyChatRoom({ macro, newsSentiment, krStocks, usStocks }) {
 5. 한국어로 답변`
   }
 
-  const sendMessage = async () => {
+   const sendMessage = async (retryCount = 0) => {
     if (!input.trim() || loading) return
     const userMsg = input.trim()
     setInput("")
     setMessages(prev => [...prev, { role: "user", content: userMsg }])
     setLoading(true)
+
+    // ★ 분석 중 상태 표시
+    setMessages(prev => [...prev, { role: "assistant", content: "⚙️ 분석 중입니다..." }])
+
     try {
       const systemPrompt = buildContext()
       const history = messages.slice(-6).map(m => ({ role: m.role, content: m.content }))
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+
+      // ★ 백엔드 프록시로 CORS 우회
+      const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
           system: systemPrompt,
           messages: [...history, { role: "user", content: userMsg }],
         })
       })
       const data = await res.json()
       const reply = data.content?.[0]?.text || "데이터 분석 중 오류가 발생했습니다."
-      setMessages(prev => [...prev, { role: "assistant", content: reply }])
-    } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "통신 오류. 잠시 후 다시 시도하십시오." }])
+
+      // ★ "분석 중" 메시지 교체
+      setMessages(prev => [...prev.slice(0, -1), { role: "assistant", content: reply }])
+    } catch (e) {
+      // ★ Retry 로직 (최대 2회)
+      if (retryCount < 2) {
+        console.log(`재시도 ${retryCount + 1}회...`)
+        setMessages(prev => prev.slice(0, -1))  // 분석중 제거
+        setTimeout(() => sendMessage(retryCount + 1), 2000)
+        return
+      }
+      setMessages(prev => [...prev.slice(0, -1), { role: "assistant", content: "참모실 연결 실패. 서버 상태를 확인 중입니다." }])
     }
     setLoading(false)
   }
